@@ -1,0 +1,65 @@
+# ============================================================
+# Crazyflie 2X Physical Parameters
+# Source: Genesis/genesis/assets/urdf/drones/cf2x.urdf
+# 용도: 제어기 테스트용 레퍼런스 드론 (Nova URDF 완성 전 임시 사용)
+# ============================================================
+
+drone:
+  name: "CF2X"
+  urdf: "urdf/drones/cf2x.urdf"  # Genesis 내장 경로
+  frame_type: x_frame
+  coord_system: enu
+  kf: 3.16e-10  # [N/RPM²] (URDF properties 기준)
+
+  mass: 0.027
+  gravity: 9.81
+
+  inertia:
+    ixx: 0.000014
+    iyy: 0.000014
+    izz: 0.0000217
+    ixy: 0.0
+    ixz: 0.0
+    iyz: 0.0
+
+  arm_length: 0.0397
+
+  propellers:
+    link_names:
+      - prop0_link   # front-right (+x,-y)
+      - prop1_link   # back-right  (-x,-y)
+      - prop2_link   # back-left   (-x,+y)
+      - prop3_link   # front-left  (+x,+y)
+
+    positions:
+      - [ 0.0323, -0.0323, 0.0]   # prop0: front-right (CW)
+      - [-0.0323, -0.0323, 0.0]   # prop1: back-right  (CCW)
+      - [-0.0323,  0.0323, 0.0]   # prop2: back-left   (CW)
+      - [ 0.0323,  0.0323, 0.0]   # prop3: front-left  (CCW)
+
+    spin_directions:
+      - -1
+      -  1
+      - -1
+      -  1
+
+  motor:
+    model: "CF2X brushless"
+    propeller: "45mm"
+    battery: "1S"
+    min_thrust: 0.0
+    max_thrust: 0.1597
+    torque_thrust_ratio: 0.02513  # KM/KF = 7.94e-12 / 3.16e-10
+    pwm_min: 1000
+    pwm_max: 2000
+    pwm_hover: null
+
+  # hover_rpm=14468, KF=3.16e-10 → hover_thrust≈0.0661 N/motor
+  pwm_thrust_table:
+    - [1000, 0.000]
+    - [1200, 0.020]
+    - [1400, 0.045]
+    - [1502, 0.066]
+    - [1600, 0.085]
+    - [1800, 0.125]
+    - [2000, 0.160]

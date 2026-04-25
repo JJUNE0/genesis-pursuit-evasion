@@ -1,0 +1,54 @@
+# Byte-compiled / build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Experiment outputs (CLAUDE.md §11)
+logs/
+logs_v2/
+runs/
+outputs/
+wandb/
+
+# Heavy artifacts
+*.bin
+*.ckpt
+*.pt
+*.pth
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.tar
+*.tar.gz
+
+# Pytest / coverage / mypy
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# pre-commit
+.pre-commit-cache/
+
+# cfgs.pkl is allowed under run dirs only (already covered by logs/ etc.)

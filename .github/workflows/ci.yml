@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install lint tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff>=0.5" "black>=24" "isort>=5.13" pre-commit
+      - name: Ruff
+        run: ruff check . --exclude reference --exclude wandb --exclude outputs --exclude logs --exclude runs
+      - name: Black (check)
+        run: black --check . --extend-exclude "reference|wandb|outputs|logs|runs"
+      - name: Isort (check)
+        run: isort --check-only . --skip reference --skip wandb --skip outputs --skip logs --skip runs
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install (CPU subset only — Genesis is GPU-heavy and skipped in CI)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "numpy<2" "scipy>=1.11" "pyyaml>=6.0" pytest
+      - name: Sanity (collect-only — full PE smoke runs locally on GPU; see TODO Phase 1)
+        run: |
+          pytest --collect-only -q tests || true

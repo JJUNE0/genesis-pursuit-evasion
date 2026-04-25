@@ -1,0 +1,106 @@
+# ============================================================
+# Nova Drone Physical Parameters
+# Source: IsaacSimulator-devel/URDF/Nova_final/urdf/Nova_final.urdf
+#         IsaacSimulator-devel/CocelDroneSimulation/Robots/QuadRotorConfig.py
+#         IsaacSimulator-devel/MotorPropellerTest/MotorPropellerTest_2024-05-15.csv
+# ============================================================
+
+drone:
+  name: "Nova"
+  urdf: "assets/urdf/nova/nova_genesis.urdf"  # Genesis 호환 URDF
+  frame_type: x_frame   # x_frame | +_frame
+  coord_system: enu     # enu | ned
+  kf: 3.06e-8           # [N/RPM²] 추정값 (ECO2306 5.5" @ ~12000RPM max)
+
+  # --- 물리 파라미터 (Nova_final.urdf 기준) ---
+  mass: 0.80127          # [kg]
+  gravity: 9.81          # [m/s²]
+
+  inertia:               # [kg·m²] (Nova_final.urdf)
+    ixx: 0.00033486
+    iyy: 0.00062183
+    izz: 0.00088080
+    ixy: 0.0             # 대칭 구조 가정
+    ixz: 0.0
+    iyz: 0.0
+
+  # --- 프로펠러 배치 (X-frame, Nova_final.urdf joint positions) ---
+  # 순서: [front_left, front_right, back_left, back_right]
+  arm_length: 0.10607    # [m] 중심 ~ 모터 축 (수평 거리)
+
+  propellers:
+    # Pixhawk X configuration (PX4 표준 모터 번호 순서)
+    # Motor 1=FR(CW), 2=BL(CW), 3=FL(CCW), 4=BR(CCW)
+    link_names:          # Genesis prop 링크명
+      - prop0_link       # Motor 1: Front-Right (+x,-y) CW
+      - prop1_link       # Motor 2: Back-Left   (-x,+y) CW
+      - prop2_link       # Motor 3: Front-Left  (+x,+y) CCW
+      - prop3_link       # Motor 4: Back-Right  (-x,-y) CCW
+
+    positions:           # [m] base_link 기준 (x, y, z)
+      - [ 0.10607, -0.10607, 0.0123]   # prop0: front_right
+      - [-0.10607,  0.10607, 0.0113]   # prop1: back_left
+      - [ 0.10607,  0.10607, 0.0123]   # prop2: front_left
+      - [-0.10607, -0.10607, 0.0123]   # prop3: back_right
+
+    spin_directions:     # +1: CCW, -1: CW (위에서 봤을 때)
+      - -1               # prop0: front_right CW
+      - -1               # prop1: back_left   CW
+      -  1               # prop2: front_left  CCW
+      -  1               # prop3: back_right  CCW
+
+  # --- 모터/프로펠러 스펙 ---
+  motor:
+    model: "EMAX ECO 2306"
+    propeller: "5.5 inch"
+    battery: "4S (16.8V nominal)"
+
+    # 추력 범위 (1모터 기준, 실측 CSV)
+    min_thrust: 0.0      # [N]
+    max_thrust: 4.4054   # [N] at PWM 1894 µs
+
+    # 토크/추력 비율 (실측: torque / thrust ≈ 0.0123)
+    # KM/KF 에 해당하는 값
+    torque_thrust_ratio: 0.01239   # [m] = KM/KF
+
+    # PWM 범위
+    pwm_min: 1000        # [µs] arm 직후 최소값
+    pwm_max: 2000        # [µs] 최대값 (ESC 표준)
+    pwm_hover: null      # [µs] 추후 캘리브레이션으로 계산
+
+  # --- Cascade PID 게인 (Nova 전용 튜닝) ---
+  # Nova는 CF2X 대비 Ixx 24x, 팔길이 3.3x, N/µs 31.7x → att 응답이 ~4.4x 강함
+  # att kp: CF2X 8.0 → Nova 2.0 (8.0 / 4.4 ≈ 1.8, 반올림)
+  # vel_z kd=0: pos_z kd spike(150 m/s) 방지 위해 outer/inner 둘 다 kd 제거
+  pid_gains:
+    # [kp,   ki,   kd,   windup_limit]
+    pos_x:   [2.0,  0.0,  0.5,  .inf]
+    pos_y:   [2.0,  0.0,  0.5,  .inf]
+    pos_z:   [2.0,  0.0,  0.0,  .inf]   # kd=0 유지 (첫 스텝 spike 방지)
+    vel_x:   [6.0,  0.0,  0.8,  30.0]
+    vel_y:   [6.0,  0.0,  0.8,  30.0]
+    vel_z:   [40.0, 0.0,  0.0,  .inf]
+    att_roll:  [2.0, 0.0,  0.5,  .inf]
+    att_pitch: [2.0, 0.0,  0.5,  .inf]
+    att_yaw:   [1.5, 0.0,  0.3,  .inf]
+
+  # PWM → Thrust 매핑 테이블 (실측 CSV, 부호 반전 적용)
+  # [pwm (µs), thrust (N)] — 음수 부호는 측정 장비 방향 보정
+  pwm_thrust_table:
+    - [1000,    0.000]
+    - [1055.88, 0.006]
+    - [1111.76, 0.055]
+    - [1167.65, 0.138]
+    - [1223.53, 0.279]
+    - [1279.41, 0.441]
+    - [1335.29, 0.646]
+    - [1391.18, 0.873]
+    - [1447.06, 1.154]
+    - [1502.94, 1.431]
+    - [1558.82, 1.766]
+    - [1614.71, 2.088]
+    - [1670.59, 2.448]
+    - [1726.47, 2.923]
+    - [1782.35, 3.403]
+    - [1838.24, 3.953]
+    - [1894.12, 4.405]

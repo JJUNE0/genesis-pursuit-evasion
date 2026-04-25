@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genesis-pursuit-evasion"
+version = "0.0.1"
+description = "1v1 quadrotor pursuit-evasion with asymmetric communication delay, direct forecaster, and AMS-DRL co-training on Genesis."
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "bjy6614", email = "bjy6614@gmail.com" },
+]
+dependencies = [
+    "genesis-world",
+    "rsl-rl-lib>=5.0.0",
+    "torch>=2.2",
+    "tensordict>=0.4",
+    "numpy<2",
+    "scipy>=1.11",
+    "pyyaml>=6.0",
+    "wandb>=0.16",
+    "tensorboard>=2.15",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+    "ruff>=0.5",
+    "black>=24",
+    "isort>=5.13",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agents*", "envs*", "controllers*", "utils*"]
+exclude = ["reference*", "tests*", "scripts*", "configs*", "assets*", "paper*", "docs*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["reference", "wandb", "outputs", "logs", "runs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY", "PL"]
+ignore = ["E501", "PLR0913", "PLR0915", "PLR2004"]
+
+[tool.black]
+line-length = 110
+target-version = ["py310"]
+extend-exclude = "reference|wandb|outputs|logs|runs"
+
+[tool.isort]
+profile = "black"
+line_length = 110
+skip = ["reference", "wandb", "outputs", "logs", "runs"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["agents", "envs"]
+exclude = "(reference|wandb|outputs|logs|runs|legacy_envs)"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+filterwarnings = ["ignore::DeprecationWarning"]

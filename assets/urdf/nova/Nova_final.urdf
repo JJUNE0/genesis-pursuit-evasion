@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="Nova_final">
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.0024999 -8.4255E-06 -0.023708"
+        rpy="0 0 0" />
+      <mass
+        value="0.80127" />
+      <inertia
+        ixx="0.00033486"
+        ixy="-7.6023E-08"
+        ixz="3.0564E-06"
+        iyy="0.00062183"
+        iyz="7.2732E-08"
+        izz="0.0008808" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="front_left_prop_link">
+    <inertial>
+      <origin
+        xyz="-4.1633E-17 -1.1102E-16 0.0025"
+        rpy="0 0 0" />
+      <mass
+        value="0.0068482" />
+      <inertia
+        ixx="5.2753E-06"
+        ixy="5.5475E-06"
+        ixz="5.9268E-23"
+        iyy="5.9855E-06"
+        iyz="1.327E-23"
+        izz="1.1232E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/front_left_prop_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/front_left_prop_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="front_left_prop_joint"
+    type="revolute">
+    <origin
+      xyz="0.10607 0.10607 0.0123"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="front_left_prop_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="front_right_prop_link">
+    <inertial>
+      <origin
+        xyz="-1.3184E-16 1.1102E-16 0.0025"
+        rpy="0 0 0" />
+      <mass
+        value="0.0068482" />
+      <inertia
+        ixx="5.9855E-06"
+        ixy="-5.5475E-06"
+        ixz="3.2336E-24"
+        iyy="5.2753E-06"
+        iyz="-1.4081E-23"
+        izz="1.1232E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/front_right_prop_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/front_right_prop_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="front_right_prop_joint"
+    type="revolute">
+    <origin
+      xyz="0.10607 -0.10607 0.0123"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="front_right_prop_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="back_left_prop_link">
+    <inertial>
+      <origin
+        xyz="8.3267E-17 0 0.0025"
+        rpy="0 0 0" />
+      <mass
+        value="0.0068482" />
+      <inertia
+        ixx="5.9855E-06"
+        ixy="-5.5475E-06"
+        ixz="-2.903E-23"
+        iyy="5.2753E-06"
+        iyz="2.2306E-23"
+        izz="1.1232E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/back_left_prop_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/back_left_prop_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="back_left_prop_joint"
+    type="revolute">
+    <origin
+      xyz="-0.10607 0.10607 0.0113"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="back_left_prop_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="back_right_prop_link">
+    <inertial>
+      <origin
+        xyz="-3.4547E-13 -3.3418E-14 0.0025"
+        rpy="0 0 0" />
+      <mass
+        value="0.0068482" />
+      <inertia
+        ixx="5.2753E-06"
+        ixy="5.5475E-06"
+        ixz="5.8992E-24"
+        iyy="5.9855E-06"
+        iyz="4.0163E-24"
+        izz="1.1232E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/back_right_prop_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://Nova_final/meshes/back_right_prop_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="back_right_prop_joint"
+    type="revolute">
+    <origin
+      xyz="-0.10607 -0.10607 0.0123"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="back_right_prop_link" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>

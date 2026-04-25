@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nova Drone — Genesis AI compatible URDF
+  Physics: Nova_final.urdf (SolidWorks export)
+  Motor: EMAX ECO 2306, Propeller: 5.5", Battery: 4S
+
+  Prop order matches drone_params.yaml link_names / spin_directions:
+    prop0_link: Front-Right (+x,-y)  CW   spin=-1
+    prop1_link: Back-Left  (-x,+y)   CW   spin=-1
+    prop2_link: Front-Left (+x,+y)   CCW  spin=+1
+    prop3_link: Back-Right (-x,-y)   CCW  spin=+1
+
+  Coordinate system: ENU (X=forward, Y=left, Z=up)
+
+  Design decisions:
+  - base_link: real STL visual, simple box collision (avoids CoACD on complex mesh)
+  - prop links:  real STL visual, mass=0, no collision
+    Genesis computes thrust via set_propellers_rpm — prop mass/inertia/collision
+    adds no physical benefit and causes CoACD overhead + inertia mismatches.
+-->
+<robot name="nova">
+
+  <!-- Genesis physics properties (KF: 4.405N / 12000RPM^2 approx 3.06e-8) -->
+  <properties
+    arm="0.10607"
+    kf="3.06e-8"
+    km="3.79e-10"
+    thrust2weight="2.23"
+    max_speed_kmh="60"
+    gnd_eff_coeff="11.36859"
+    prop_radius="6.985e-2"
+    drag_coeff_xy="9.1785e-7"
+    drag_coeff_z="10.311e-7"
+    dw_coeff_1="2267.18"
+    dw_coeff_2=".16"
+    dw_coeff_3="-.11" />
+
+  <!-- ================================================================ -->
+  <!-- Base link — real STL visual, simple box collision                 -->
+  <!-- ================================================================ -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.0024999 -8.4255E-06 -0.023708" rpy="0 0 0" />
+      <mass value="0.80127" />
+      <inertia
+        ixx="0.00033486" ixy="-7.6023E-08" ixz="3.0564E-06"
+        iyy="0.00062183" iyz="7.2732E-08"
+        izz="0.00088080" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="../../meshes/nova/base_link.STL" />
+      </geometry>
+      <material name="dark_gray">
+        <color rgba="0.2 0.2 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.25 0.25 0.04" />
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- ================================================================ -->
+  <!-- prop0_link: Front-Right (+x,-y)  CW   spin=-1                    -->
+  <!-- Visual only — mass=0, no collision                               -->
+  <!-- ================================================================ -->
+  <link name="prop0_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="../../meshes/nova/front_right_prop_link.STL" />
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="prop0_joint" type="fixed">
+    <origin xyz="0.10607 -0.10607 0.0123" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="prop0_link" />
+  </joint>
+
+  <!-- ================================================================ -->
+  <!-- prop1_link: Back-Left  (-x,+y)   CW   spin=-1                    -->
+  <!-- ================================================================ -->
+  <link name="prop1_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="../../meshes/nova/back_left_prop_link.STL" />
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="prop1_joint" type="fixed">
+    <origin xyz="-0.10607 0.10607 0.0113" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="prop1_link" />
+  </joint>
+
+  <!-- ================================================================ -->
+  <!-- prop2_link: Front-Left (+x,+y)   CCW  spin=+1                    -->
+  <!-- ================================================================ -->
+  <link name="prop2_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="../../meshes/nova/front_left_prop_link.STL" />
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="prop2_joint" type="fixed">
+    <origin xyz="0.10607 0.10607 0.0123" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="prop2_link" />
+  </joint>
+
+  <!-- ================================================================ -->
+  <!-- prop3_link: Back-Right (-x,-y)   CCW  spin=+1                    -->
+  <!-- ================================================================ -->
+  <link name="prop3_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="../../meshes/nova/back_right_prop_link.STL" />
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="prop3_joint" type="fixed">
+    <origin xyz="-0.10607 -0.10607 0.0123" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="prop3_link" />
+  </joint>
+
+</robot>
