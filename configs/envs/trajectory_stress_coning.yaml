@@ -1,0 +1,8 @@
+trajectory:
+  type: "coning"
+  duration_s: 1.5
+  thrust_norm: 0.1
+  z_initial: 1.0
+  params:
+    amplitude: 0.8        # 거의 max body rate (0.8·π ≈ 2.5 rad/s)
+    frequency_hz: 2.0     # 2x frequency

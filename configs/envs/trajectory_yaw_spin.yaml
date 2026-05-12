@@ -1,0 +1,7 @@
+trajectory:
+  type: "yaw_spin"
+  duration_s: 1.5
+  thrust_norm: 0.0
+  z_initial: 1.0
+  params:
+    wz_norm: 0.3

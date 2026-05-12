@@ -1,0 +1,149 @@
+# Phase F (2026-05-10) — AMSPB-style Pure PE baseline.
+# Plan: docs/plans/phase_f_pure_pe_amspb.md.
+#
+# 사용자 critique 3건 처치:
+#   1. Population pold=1.0 → 0.5 (cmd line / wrapper)
+#   2. Reward 15+ 항 → 5~6항 (이 yaml — soft penalty 모두 제거, terminal + dense progress + κs + omega)
+#   3. mission+evasion 게임 → pure PE (game_mode=pure_pe, mission_reached 무력화)
+#
+# Termination: hard crash 90° + speed cap + z_floor 복원 (AMS yaml의 soft penalty 대체).
+#
+# Reward spec (AMSPB Table II 기반, env step ~5× 큰 거 보정):
+#   κa  = 0.1   (progress, both sides)
+#   κs  = 0.005 (survival per step — attacker만, defender는 chase 약화 방지로 X)
+#   κc  = 10    (terminal capture/escape)
+#   κbr = 0.005 (body rate L2)
+#   κt  = ±5    (timeout, symmetric)
+#   R_self_crash = -10 (hard crash/oob = capture 동등 페널티)
+#   R_opp_crash  = 0   (opponent crash → 별도 보상 X)
+#
+# Pure PE 모드: g_mission 비활성화 — env가 mission_reached, R_mission_win 무시.
+#               attacker는 attacker-defender 거리 증가 (도망), defender는 거리 감소 (chase).
+
+game_mode: pure_pe   # ← Phase F 신규 키. "mission" (기존) | "pure_pe"
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 10.0  # ← Phase F v5 (2026-05-11): 5.0→10.0.
+                          # 사용자 critique on F.1c v2: AMSPB도 10s episode인데 우리는 5s.
+                          # 5s에서는 attacker boundary oob (0.4s)가 dominant strategy.
+                          # 10s면 chase가 catch-up 시간 확보 → capture 학습 신호 강화.
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3   # pure_pe라 unused
+  pitch_max_deg: 90.0     # ← Phase F: 60→90 (defender chase 살림 + hard crash 복원)
+  roll_max_deg:  90.0
+  crash_on_attitude: true # ← AMS yaml false에서 복원 (사용자 결정)
+  v_max: 15.0
+  crash_on_speed: true    # ← AMS yaml false에서 복원
+  z_floor: 0.05
+  # Phase F v7 (2026-05-11) — soft boundary 전환:
+  #   hard bound 무력화 (106m numerical fail-safe). bound_safety_pad=100 → effective
+  #   6m soft penalty zone. 사용자 직관: hard termination 시 attacker가 boundary 학습
+  #   기회 없음 (한 번 넘으면 즉사 → 데이터 0). soft면 살아서 학습 가능.
+  bound_xyz: 106.0
+  bound_x: 106.0
+  bound_y: 106.0
+  bound_z: 106.0
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 4.0]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-4.0, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  # pure_pe 모드라 사용 X. yaml schema 호환 위해 placeholder.
+  box:
+    x: [-10.0, -4.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  # === Phase F 5~6항 (AMSPB style) ===
+  progress_gamma: 1.0
+  progress_max:   0.1               # κa = 0.1 (사용자 보정: AMSPB 0.5 / 5)
+  defender_chase_attenuation: 1.0   # ← Phase F v7 (2026-05-11): 0.3→1.0 복귀.
+                                    # sanity 결과 (attn 0.3/0.5/0.7 모두 capture 0%) → 1.0이
+                                    # sweet spot 확정. 이번 v7 변경은 soft boundary 변수만 격리.
+  existential:    0.005             # κs (attacker만 받도록 env에서 처리; defender는 0)
+  existential_w1: 0.0
+  omega_coef_attacker: 0.0005       # ← Phase F v3: 0.005→0.0005 (10x 약화).
+  omega_coef_defender: 0.0005       # 사용자 critique: L2 식 -κbr·|ω|² 가 chase 시
+                                    # |ω|=8에서 -0.32/step → progress_max=0.1을 압도해
+                                    # chase 인센티브 음수. AMSPB는 L1(-κbr·|ω|)이므로
+                                    # 코드 변경 최소화 위해 L2 유지하되 1/10 계수.
+                                    # 0.0005×100 = 0.05/step ≈ AMSPB L1 동일.
+  omega_clamp_max_sq:  1.0e30       # ← Phase F v2: 25→inf. 사용자 critique:
+                                    # |ω|>5에서 saturate되면 chase 시 극단 body rate를
+                                    # 막을 수단이 없음. inf로 풀어 quadratic penalty 발산.
+
+  # === 제거된 soft penalty (모두 0) ===
+  action_smooth_attacker: 0.0       # 제거
+  action_smooth_defender: 0.0       # 제거
+  attitude_pad_deg: 60.0            # unused (attitude_coef=0)
+  attitude_coef:    0.0             # ← 제거 (hard crash 90°로 대체)
+  velocity_pad:    12.0             # unused
+  velocity_coef:   0.0              # ← 제거 (hard crash_on_speed로 대체)
+  z_safety_pad:    0.5              # ← Phase F v4: stage_4 값 복원
+  z_safety_coef:   0.01             # ← Phase F v4: 0→0.01 (사용자 결정).
+                                    # F1a v3에서 def_crash_z 20% 발견 — chase 중 dive해서
+                                    # ground 박음. alternating 시 attacker가 "도망치다 보면
+                                    # defender가 알아서 죽는다"를 exploit 학습 → Nash 아님.
+                                    # AMSPB pursuer ground collision disabled의 대응 안전장치.
+  bound_safety_pad: 100.0           # ← Phase F v7: effective soft boundary = (bound_x - pad) = 6m
+  bound_safety_coef: 0.05           # ← Phase F v7: 0.1→0.05 (사용자 spec).
+                                    # quadratic per-step penalty: |x|>6 이면 -0.05·(|x|-6)²
+                                    # 예: 1m 초과 -0.05, 2m -0.2, 5m -1.25, 10m -5.
+  chase_coef_attacker_init:   0.0   # ← 제거 (κa progress가 dense shaping 담당)
+  chase_coef_attacker_final:  0.0
+  chase_alpha_attacker:       1.0
+  chase_coef_defender_init:   0.0   # ← 제거
+  chase_coef_defender_final:  0.0
+  chase_alpha_defender:       1.0
+  chase_coef:        0.0
+  chase_alpha:       1.0
+  goal_dense_coef:        0.0       # pure_pe라 사용 X
+  goal_dense_coef_init:   0.0
+  goal_dense_coef_final:  0.0
+  goal_dense_alpha:       1.0
+  decay_steps:       0
+
+  # === Terminal rewards (사용자 spec) ===
+  R_mission_win:    0.0             # pure_pe 모드라 mission_reached 안 일어남
+  R_captured:       -10.0           # κc (사용자: 10 → -10 페널티)
+  R_timeout:        -5.0            # κt (attacker timeout = escape 못 함이지만 도망 모드면 +)
+                                    # ★ 단 pure_pe 도망 모드: attacker가 timeout = escape success
+                                    # → env._terminal_reward_attacker에서 game_mode 분기로 +κt
+                                    # 여기 yaml은 attacker가 timeout = -5로 표기 (mission 모드 의미).
+                                    # env의 game_mode 분기에서 pure_pe 시 부호 반전.
+  R_capture_win:    10.0            # κc (defender capture 성공)
+  R_mission_failed: 0.0             # pure_pe라 unused
+  R_timeout_win:    5.0             # defender 입장 timeout = miss (κt -5) — 단 부호 반전 같이.
+                                    # ★ env에서 pure_pe 시 attacker R_timeout = +κt = +5,
+                                    #   defender R_timeout = -κt = -5로 처리.
+  R_self_crash:    -10.0            # 사용자 spec
+  R_opp_crash:      0.0             # 제거 (이전 합의)
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

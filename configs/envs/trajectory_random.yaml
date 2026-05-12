@@ -1,0 +1,9 @@
+trajectory:
+  type: "random_smooth"
+  duration_s: 1.5
+  thrust_norm: 0.0
+  z_initial: 1.0
+  params:
+    sigma: 0.3
+    correlation_time_s: 0.1
+    seed: 42

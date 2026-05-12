@@ -1,0 +1,115 @@
+# 1v1 Pursuit-Evasion env config — **Phase K-DRL** (Phase K base + spawn 확대 + dense × 0.1).
+# Source: pe_1v1_phase_k.yaml. Plan: 2026-05-02 — Curriculum 패턴.
+#
+# Curriculum 흐름:
+#   Phase 1.0/1.5 (baseline): pe_1v1_phase_k.yaml (좁은 spawn, dense 강함, ams_s2_v6 검증)
+#   Phase 2 (ams):            pe_1v1_phase_k_drl.yaml (확대 spawn + dense 1/10, sparse 강조)
+#   → baseline 정책이 capture/mission 학습된 상태에서 ams가 sparse jackpot 추구로 진화
+#
+# Δ vs Phase K:
+#   sim.episode_length_s          : 5.0 → 8.0          (거리 늘면 task 시간 필요)
+#   termination.bound_xyz         : 5.0 → 10.0         (spawn 확대)
+#   spawn.attacker_init_pos.x     : [0.5, 1.5]   → [0.5, 4.0]
+#   spawn.defender_init_pos.x     : [-1.5, -0.5] → [-4.0, -0.5]
+#   g_mission.box.x               : [-3.0, -2.0] → [-10.0, -4.0]
+#   reward.chase_coef_attacker_init  : 0.001  → 0.0001    (× 0.1)
+#   reward.chase_coef_attacker_final : 0.0002 → 2.0e-5
+#   reward.chase_coef_defender_init  : 0.01   → 0.001     (× 0.1)
+#   reward.chase_coef_defender_final : 0.0002 → 2.0e-5
+#   reward.goal_dense_coef_init      : 0.01   → 0.001     (× 0.1)
+#   reward.goal_dense_coef_final     : 0.0002 → 2.0e-5
+#
+# 변경 안 한 것 (Phase K 그대로):
+#   chase_alpha_attacker: 1.0   chase_alpha_defender: 0.5
+#   goal_dense_alpha: 0.5
+#   R_mission/captured/timeout: ±3 / 0
+#   R_self_crash: -3.0,  R_opp_crash: 0.0
+#   decay_steps: 0,  action_smooth_defender: 5e-4
+#   omega_coef per-side, omega_clamp_max_sq=25
+#   enable_wrench_saturation: true
+#
+# 누적 시뮬 (8s, 1600 step, avg dist 5m):
+#   defender chase (alpha 0.5, coef 1e-3): 1e-3·exp(-2.5)·1600 = +0.13 (R_capture_win=3의 4%)
+#   attacker goal_dense (alpha 0.5, coef 1e-3): 동일 +0.13
+#   → terminal 거의 압도. baseline ckpt가 없으면 학습 매우 어려움.
+#   → baseline (Phase K 학습 ckpt) 있으면 일반화 + sparse 학습 가능.
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 8.0    # Phase K 5.0 → 8.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 10.0          # Phase K 5.0 → 10.0
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 4.0]          # Phase K [0.5, 1.5] (확대)
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-4.0, -0.5]        # Phase K [-1.5, -0.5] (대칭 확대)
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-10.0, -4.0]       # Phase K [-3.0, -2.0] (확대)
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  action_smooth_attacker: 1.0e-4
+  action_smooth_defender: 5.0e-4
+  existential: 0.0002
+  existential_w1: 0.1
+  omega_coef_attacker: 5.0e-5
+  omega_coef_defender: 2.0e-5
+  omega_clamp_max_sq:  25.0
+  # Phase K-DRL — dense coef × 0.1 (sparse 강조)
+  chase_coef_attacker_init:   1.0e-4    # Phase K 0.001 → 0.0001
+  chase_coef_attacker_final:  2.0e-5    # Phase K 0.0002 → 2e-5
+  chase_alpha_attacker:       1.0       # Phase K 그대로
+  chase_coef_defender_init:   0.001     # Phase K 0.01 → 0.001
+  chase_coef_defender_final:  2.0e-5
+  chase_alpha_defender:       0.5       # Phase K 그대로
+  chase_coef:        2.0e-5
+  chase_alpha:       1.0
+  goal_dense_coef:        2.0e-5
+  goal_dense_coef_init:   0.001         # Phase K 0.01 → 0.001
+  goal_dense_coef_final:  2.0e-5
+  goal_dense_alpha:       0.5           # Phase K 그대로
+  decay_steps:       0                  # Phase K 그대로 (dense constant)
+  R_mission_win:    3.0
+  R_captured:      -3.0
+  R_timeout:        0.0
+  R_capture_win:    3.0
+  R_mission_failed: -3.0
+  R_timeout_win:    0.0
+  R_self_crash:    -3.0
+  R_opp_crash:      0.0
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

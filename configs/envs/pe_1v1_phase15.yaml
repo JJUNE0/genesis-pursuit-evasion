@@ -1,0 +1,99 @@
+# 1v1 Pursuit-Evasion env config — **Phase 1.5** (attacker train).
+# attacker가 mission으로 가려면 defender의 x=0 평면을 가로질러야 하는 진짜 PE
+# setup. Phase 1.0 (defender pretrain) yaml은 pe_1v1_default.yaml.
+#
+# 사용:
+#   python scripts/train_attacker.py \
+#       --defender pretrained --defender_ckpt logs/pe1v1_v0/actor_v0.pt \
+#       --env_yaml configs/envs/pe_1v1_phase15.yaml \
+#       --num_envs 1024 --max_iterations 10000 --seed 0 --logger wandb
+
+sim:
+  dt: 0.005                   # PR-D3: default와 동일
+  substeps: 16
+  episode_length_s: 5.0       # → max_steps = 1000
+
+termination:
+  d_capture: 0.3              # PR-D3: 0.4→0.3 복귀 (default와 동일)
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0         # PR-D3: 150°→60° 복귀 (default와 동일)
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 5.0              # PR-D3: default와 정합 (좁은 spawn으로 복귀)
+
+spawn:
+  # PR-D3 — default와 동일한 좁은 spawn으로 정합 (stationary fine-tune transfer 위해).
+  # 사용자 plan 의도 (defender 너머 mission, 넓은 spawn)는 fine-tune 1단계 후 점진 확장 검토.
+  attacker_init_pos:
+    x: [0.5, 1.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-1.5, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-3.0, -2.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+# obs scaling — Phase 1.5는 bound 8m이라 1/8로 더 빡빡하게 정규화 가능하지만
+# 일관성 위해 default(1/5) 유지. 학습 보면서 필요 시 조정.
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  action_smooth: 0.0001        # PR-D3 trial 3e-4 → 원복 (학습 task 수행과 trade-off)
+  existential: 0.0002
+  existential_w1: 0.1
+  # PR-F — omega_coef per-side (default와 정합).
+  omega_coef_attacker: 5.0e-5
+  omega_coef_defender: 0.0
+  # PR-D3 dense → sparse linear decay (TODO §6.2).
+  # 학습 초기 dense 강하게(5x) → 점진 sparse-only로 align.
+  # decay_steps 단위 = env.step 호출 수. 1 PPO iter = num_steps_per_env(32) env.step.
+  # 5000 iter 학습 중 약 절반(2500 iter ≈ 80k env.step)에서 final 도달.
+  # PR-D3 phase15 — mission 시도 우선 setup. goal_dense 강(5x), evade 약(1x).
+  # 비율 5:1로 attacker가 defender 회피보다 mission 도달 학습.
+  chase_coef:        0.0002
+  chase_coef_init:   0.001       # evade 1x (default와 동일)
+  chase_coef_final:  0.0002
+  chase_alpha:       1.0
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01   # PR-G (2026-04-28): 0.001→0.01 (10x). default와 정합.
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.5
+  decay_steps:       80000
+  # PR-D3 phase15 — default와 정합 magnitude (mission +3/-3, capture +1/-1).
+  # stationary 정책 transfer 위해 reward 매그니튜드도 동일.
+  R_mission_win: 3.0
+  R_captured: -1.0
+  R_timeout: 0.0
+  R_capture_win: 1.0
+  R_mission_failed: -3.0
+  R_timeout_win: 0.0
+  # crash/oob per-side (PR-E) — default yaml과 동일 (transfer 위해 상수 정합).
+  R_self_crash: -3.0
+  R_opp_crash:   0.5
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  # action_mode 토글 — default와 정합 ("rpm" → 기존 RL 정책 transfer 호환).
+  # 단계 2 PD 튜닝 후 "rate"로 전환 시 default와 함께 갈 것.
+  action_mode: "rate"
+  rate_controller:
+    # 단계 2 (PR-I) 튜닝값 — default와 정합. 전 축 targets 만족.
+    # 상세: configs/envs/pe_1v1_default.yaml + outputs/rate_pid_tuning/tuning_report.md
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793

@@ -1,0 +1,133 @@
+# 1v1 Pursuit-Evasion env config — **Phase 1.0** (defender pretrain).
+# See docs/plans/phase1_base_pe_env.md §5 for rationale.
+# Phase 1.5 (attacker train) uses configs/envs/pe_1v1_phase15.yaml.
+# PR-D (2026-04-26): hover env-style stabilization + phase-separated spawn.
+
+# Phase 3a (2026-05-12) — τ-step defender obs delay (BPQL augmented state).
+# 0 = no delay (current default, Phase 2 baseline). Variant 2-5 yaml은
+# 별도 파일에서 override (예: tau_delay: 25).
+tau_delay: 0
+
+sim:
+  dt: 0.005                   # PR-D3: 0.01→0.005 (제어주기 절반). 한 step 접근거리
+                              #        v_max·dt = 0.05m로 줄어 capture margin 자연 확장.
+  substeps: 16                # 8→16. 마이크로스텝 0.0003125s
+  episode_length_s: 5.0       # → max_steps = 1000 (자동 계산: 5.0/0.005)
+
+termination:
+  d_capture: 0.3              # PR-D3: 0.4→0.3 복귀. dt=0.005 덕에 step approach
+                              #        v·dt=0.05m로 줄어 drone contact(0.2m)와 합쳐
+                              #        margin 0.05m. 시뮬 안정성 OK.
+  g_mission_radius: 0.3       # m, attacker-goal distance for mission_reached
+  pitch_max_deg: 60.0         # PR-D3: 150°→60° 복귀. dt=0.005+substeps=16의 안정화
+  roll_max_deg: 60.0          #        효과로 random init도 견딤. 학습 시 정책이
+                              #        "공격적 chase + 자세 발산"을 crash 신호로 차단.
+  z_floor: 0.1                # m, z below this → ground crash
+  v_max: 10.0                 # m/s, body speed crash threshold
+  bound_xyz: 5.0              # m, workspace half-extent (oob)
+
+spawn:
+  # PR-D — Phase 1.0 좁은 분리 setup. attacker 우측, defender 좌측, g_mission
+  # 더 좌측. defender chase 거리 ≈ 2m → R_chase 신호 살아있음. attacker는
+  # stationary라 g_mission 미사용이지만 box 경계는 명확히 attacker 박스 외부.
+  attacker_init_pos:
+    x: [0.5, 1.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-1.5, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-3.0, -2.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+# PR-D — obs scaling (hover env 차용). MLP 입력 분포를 ~[-1, 1]로.
+obs_scales:
+  pos: 0.2          # 1 / 5.0  (= 1 / bound_xyz)
+  vel: 0.2          # 1 / 5.0  (drone speed sensible range)
+  ang_vel: 0.31831  # 1 / π
+
+# Reward magnitudes (TODO.md §1.2 표 + PR-D 보강).
+# 모두 step 단위. 곱셈 × dt 추가 적용 안 함 (legacy BaseDroneEnv 패턴과 다름).
+# Dense 항은 누적 max ≈ terminal magnitude의 1/10 (사용자 의도, 2026-04-26).
+reward:
+  # attacker dense
+  progress_gamma: 0.99         # γ for potential-based progress; must match PPO discount
+  progress_max: 0.0002         # PR-D: ±0.0002/step (was 0.002). 누적 max ±0.1.
+  action_smooth: 0.0001        # PR-D3 trial 3e-4 → 원복. 강화 시 RPM 변동 감소 →
+                               #        가속 부족 → mission 도달 trajectory 떠돌이.
+                               #        sim-to-real (Phase 7) 단계에 다시 도입 검토.
+  existential: 0.0002          # PR-D: w1 / T_max with w1=0.1, T_max=500 ≈ 0.0002 (was 0.002)
+  existential_w1: 0.1          # PR-D: 1.0 → 0.1 (누적 max -0.1)
+  # PR-F (2026-04-28) — omega_coef per-side. P1 진단(logs attacker run):
+  # attacker |ω| 1.65→10.06 rad/s 단조 증가 = 자세 발산 trap. defender |ω|≈5.5
+  # rad/s = chase 기동 자연 자세 (95% capture). attacker만 enable, defender 유지.
+  # legacy `omega_coef` 키는 silent fallback 위험 차단 위해 명시 삭제.
+  omega_coef_attacker: 5.0e-5  # |ω|=10 폭주 시 step penalty -5e-3 (dense order 동일)
+  omega_coef_defender: 0.0     # chase 기동 |ω|≈5.5 rad/s 차단 방지
+  # PR-D — Gaussian dense rewards. coef · exp(-α · dist).
+  # PR-D3 dense → sparse linear decay (TODO §6.2).
+  # 학습 초기 dense 강하게(5x) → 점진 sparse-only로 align.
+  # decay_steps 단위 = env.step 호출 수. 1 PPO iter = num_steps_per_env(32) env.step.
+  # 5000 iter 학습 중 약 절반(2500 iter ≈ 80k env.step)에서 final 도달.
+  chase_coef:        0.0002    # backward compat (decay_steps=0이면 이 값 사용)
+  chase_coef_init:   0.001     # 학습 초기 5x
+  chase_coef_final:  0.0002    # 점진 final
+  chase_alpha:       1.0       # exp scale (1m: 0.37, 3m: 0.05)
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01    # PR-G (2026-04-28): 0.001→0.01 (10x). 진단 P1에서
+                                  #         attacker 시도 의지 약함(min_d 3.4m 일관) → dense 강화로 진입 incentive 회복.
+                                  #         d=3.5m typical에서 dense per-step ~1.7e-3, 1000 step 누적 max(d=0)~10
+                                  #         > mission_win=3. ⚠ hover trap 잠재 위험. decay_steps=80k 절반 iter에
+                                  #         final=2e-4 도달이라 강화 구간 일시적. 진단: 후기 ep_length max 근처 +
+                                  #         mean d 0.3-1m plateau면 hover trap 신호.
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.5     # PR-D3 1.0→0.5. 거리 4m에서 신호 7.5x 강해져
+                                  #          멀리서도 attacker가 goal 방향 끌림.
+  decay_steps:       80000     # ≈ 2500 PPO iter 시점에 final 도달
+  # terminal
+  # PR-D3 reward magnitude: mission pair 강화 (+3/-3), capture pair 약화 유지 (+1/-1).
+  # zero-sum mirror는 두 pair 모두 보존되지만 magnitude 비대칭 (mission > capture).
+  # 의도: stationary defender 학습 trap 회피 — capture trauma magnitude가 mission_win
+  # 시도 incentive를 압도하지 않도록 균형. Phase 5 self-play 진입 시 zero-sum 통일
+  # 재검토 (옵션 C: R_timeout=±1, 옵션 G: magnitude scaling + existential 약화).
+  R_mission_win: 3.0           # attacker mission 도달 시도 강한 incentive
+  R_captured: -1.0             # capture 위험 적당 (시도 trauma 회피)
+  R_timeout: 0.0
+  R_capture_win: 1.0           # zero-sum mirror with R_captured
+  R_mission_failed: -3.0       # zero-sum mirror with R_mission_win
+  R_timeout_win: 0.0
+  # crash/oob per-side (PR-E): 자기 추락 = R_self_crash 페널티, 상대 추락 =
+  # R_opp_crash 보너스. env init이 부등식을 assert로 강제 (자살/cheese 익스플로잇 차단):
+  #   R_self_crash <= min(R_captured, R_mission_failed)
+  #   R_opp_crash  <= min(R_capture_win, R_mission_win)
+  # 현 yaml: R_self_crash=-3 (= R_mission_failed, 등호 만족), R_opp_crash=0.5.
+  R_self_crash: -3.0
+  R_opp_crash:   0.5
+
+# Action latency (legacy BaseDroneEnv parity).
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  # action_mode:
+  #   "rpm"  → 기존 per-prop 스케일드-호버 (a ∈ [-1,1]^4 → rpm = (1+0.5a)·hover_rpm).
+  #   "rate" → [T_norm, wx_ref, wy_ref, wz_ref] body-rate PD inner loop (200Hz, env dt와 동일).
+  # 단계 1 인프라: 기본은 "rpm" (기존 테스트/체크포인트 호환). 단계 2 PD 튜닝 후 "rate"로 전환.
+  action_mode: "rate"
+  rate_controller:
+    # 단계 2 (PR-I 2026-04-28) 튜닝 결과 — scripts/tune_rate_pid.py grid search.
+    # outputs/rate_pid_tuning/tuning_report.md 참조. 전 축 targets 만족 ✓
+    #   roll : Kp=0.05, Kd=1e-4 → rise≈0.01s, os=0%,    ess=0.02%
+    #   pitch: Kp=0.10, Kd=5e-5 → rise≈0.01s, os=0%,    ess=0.01%
+    #   yaw  : Kp=0.10, Kd=1e-4 → rise≈0.025s, os=0%,   ess=0.01%
+    # 안정성 조건 (1-step 후방차분 derivative): Kd < I (per axis).
+    # Nova: I = (3.35e-4, 6.22e-4, 8.81e-4) → Kd 모두 안정 영역.
+    kp_rate: [0.05, 0.10, 0.10]                # roll, pitch, yaw  [N·m / (rad/s)]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793   # ±π rad/s 한계

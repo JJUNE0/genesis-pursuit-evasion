@@ -1,0 +1,117 @@
+# 1v1 Pursuit-Evasion env config — **Phase M (defender init)** — defender 단일 학습 전용.
+# Source: pe_1v1_phase_m.yaml. Plan: 2026-05-03 — defender 단일 학습 chase 신호 부족 진단.
+#
+# Δ vs Phase M:
+#   spawn.attacker_init_pos.x  : [0.5, 4.0]   → [0.5, 1.5]   (좁음)
+#   spawn.attacker_init_pos.y  : [-1.0, 1.0]  → [-0.5, 0.5]
+#   spawn.defender_init_pos.x  : [-4.0, -0.5] → [-1.5, -0.5]
+#   spawn.defender_init_pos.y  : [-1.0, 1.0]  → [-0.5, 0.5]
+#   reward / episode / bound / action: Phase M 그대로 (학습된 정책 ams 일반화)
+#
+# Rationale (Phase M defender 단일 학습 진단 — 1488 iter, captured_rate ~3% only):
+#   동일 yaml로 attacker는 win 83% (자기 r_progress가 self-generated dense),
+#   defender는 r_block=0 (stationary attacker → 0) + r_chase 좁음 (alpha=1.0,
+#   d_ad=5m에서 6.7e-5 ≈ 0) → active dense 신호 0개로 학습 진입 실패.
+#
+#   비대칭 본질:
+#     attacker dense = self-generated (자기 박스 이동) → 정지 상대도 학습 가능
+#     defender dense = opp-dependent (attacker dist 변화 + chase) → 정지 상대면 0
+#
+#   처방: defender task 본질이 "가까이 온 적 capture"이므로 spawn 가깝게 시작.
+#     - alpha=1.0 sharp chase가 이 영역에서 정확히 의도대로 작동
+#     - d_ad=1m: r_chase=3.7e-3, d_ad=0.5m: 6.1e-3, d_ad=0.3m(capture): 7.4e-3
+#     - 1000 step 누적 ~1.5 (R_capture_win=10의 15%, learning bootstrap 충분)
+#   일반화는 ams cycle 1+ 단계에서 attacker 움직이면 r_block 활성 + d_ad 자연 변화.
+#
+# 거리 계산 (좁은 spawn 평균):
+#   attacker 평균 x ≈ 1.0, defender 평균 x ≈ -1.0 → d_ad ≈ 2.0m
+#   chase 신호: 0.01·exp(-2.0) = 1.35e-3/step → 1000 step ~1.35
+#
+# 사용처:
+#   - defender 단일 학습 (phase1.0) 만. attacker_v0는 stationary로 사용.
+#   - ams_drl 진입 시에는 pe_1v1_phase_m.yaml (wide spawn) 사용.
+#   - 학습된 defender_v0는 wide spawn에 일반화돼야 함 (ams가 보정).
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 5.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 5.0       # Phase M 12 → 5 (좁은 spawn에 맞춤, oob trap 완화)
+
+spawn:
+  # Phase M-defender-init — 좁은 spawn (d_ad ~1-2m). chase 신호 활성.
+  attacker_init_pos:
+    x: [0.5, 1.5]                   # Phase M [0.5, 4.0] → 좁음
+    y: [-0.5, 0.5]                  # Phase M [-1.0, 1.0] → 좁음
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-1.5, -0.5]                 # Phase M [-4.0, -0.5] → 좁음
+    y: [-0.5, 0.5]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-10.0, -4.0]                # Phase M 그대로 (defender 학습엔 무관)
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  # Phase M 그대로 — 정책이 ams Phase M 영역에서도 동일 reward로 작동하도록.
+  progress_gamma: 1.0
+  progress_max:   0.01
+  action_smooth_attacker: 5.0e-4    # F3 — banking 부드럽게 (Phase M 동일)
+  action_smooth_defender: 5.0e-4
+  existential: 0.0002
+  existential_w1: 0.0
+  omega_coef_attacker: 5.0e-4       # F3 — rate 페널티 강화 (Phase M 동일)
+  omega_coef_defender: 5.0e-4
+  omega_clamp_max_sq:  25.0
+  # 2026-05-03 — Quadratic attitude penalty (Phase M 동일).
+  attitude_pad_deg: 50.0
+  attitude_coef:    5.0e-4
+  chase_coef_attacker_init:   0.01
+  chase_coef_attacker_final:  0.0002
+  chase_alpha_attacker:       1.0
+  chase_coef_defender_init:   0.01
+  chase_coef_defender_final:  0.0002
+  chase_alpha_defender:       1.0
+  chase_coef:        0.0002
+  chase_alpha:       1.0
+  goal_dense_coef:        0.0
+  goal_dense_coef_init:   0.0
+  goal_dense_coef_final:  0.0
+  goal_dense_alpha:       0.1
+  decay_steps:       0
+  R_mission_win:    10.0
+  R_captured:       -5.0
+  R_timeout:        -1.0
+  R_capture_win:    10.0
+  R_mission_failed: -5.0
+  R_timeout_win:    0.0
+  R_self_crash:    -5.0
+  R_opp_crash:      0.0
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

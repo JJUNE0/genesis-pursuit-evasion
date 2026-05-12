@@ -1,0 +1,104 @@
+# 1v1 Pursuit-Evasion env config — **Phase D** (reward symmetrization).
+# Source: pe_1v1_phase_c.yaml. Plan: TODO.md §5.6 (Phase 5).
+#
+# Δ vs Phase C — defender 학습 신호 강화로 reward 대칭화:
+#   reward.chase_coef_init  : 0.001 → 0.01    (10× — = goal_dense_coef_init)
+#   reward.chase_alpha      : 1.0   → 0.5     (decay 완만 — = goal_dense_alpha)
+#   reward.R_capture_win    : 1.0   → 3.0     (= R_mission_win)
+#   reward.R_captured       : -1.0  → -3.0    (= R_mission_failed)
+#
+# Rationale (사용자 관측 2026-04-30, Phase 1.0 squashed defender 학습 중):
+#   "defender가 목표물을 못 찾아가는거 같다" — 학습 신호가 attacker의 1/10
+#   수준이라 chase 학습이 명백히 느림. squashing (PR-O)으로 distribution
+#   collapse는 풀렸지만 reward 비대칭은 그대로라 학습 속도 비대칭 잔존.
+#
+# 부수 영향 (의도): attacker r_evade = -chase_coef·exp(-α·d) 도 강해짐.
+#   d=2m: 이전 -1.35e-4 → 신규 -3.68e-3 (27× 강한 회피 incentive)
+#   대칭 mirror — attacker 회피 학습도 같이 활발해져 balance.
+#
+# Spawn 확대는 본 yaml에 미포함 — 단계화. dense 대칭화 결과 보고 결정.
+#
+# minimax 부등식 검증 (env.py:147-160):
+#   R_self_crash(-3) ≤ R_captured(-3)         ✓ (등호)
+#   R_self_crash(-3) ≤ R_mission_failed(-3)   ✓ (등호)
+#   R_opp_crash(0)   ≤ R_capture_win(3)       ✓
+#   R_opp_crash(0)   ≤ R_mission_win(3)       ✓
+#   ⚠ R_self_crash = R_captured 등호 borderline — 자살 incentive 0이지만
+#     음수가 더 큰 음수가 아니라 회피 동기 약함. ams_s2 학습 시 점검 필요.
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 5.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 5.0
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 1.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-1.5, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-3.0, -2.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  action_smooth_attacker: 1.0e-4
+  action_smooth_defender: 5.0e-4
+  existential: 0.0002
+  existential_w1: 0.1
+  omega_coef_attacker: 5.0e-5
+  omega_coef_defender: 2.0e-5
+  omega_clamp_max_sq:  25.0
+  # Phase D — dense reward 대칭화 (= goal_dense_*)
+  chase_coef:        0.0002
+  chase_coef_init:   0.01            # Phase C 0.001 → 0.01 (10x, = goal_dense_coef_init)
+  chase_coef_final:  0.0002
+  chase_alpha:       0.5             # Phase C 1.0 → 0.5 (= goal_dense_alpha)
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.5
+  decay_steps:       80000
+  # Phase D — terminal 대칭화 (capture pair = mission pair)
+  R_mission_win:    3.0
+  R_captured:      -3.0              # Phase C -1.0 → -3.0 (= R_mission_failed)
+  R_timeout:        0.0
+  R_capture_win:    3.0              # Phase C 1.0 → 3.0 (= R_mission_win)
+  R_mission_failed: -3.0
+  R_timeout_win:    0.0
+  R_self_crash:    -3.0
+  R_opp_crash:      0.0              # Phase A P0 유지
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

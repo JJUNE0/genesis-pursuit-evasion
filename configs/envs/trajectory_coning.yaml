@@ -1,0 +1,8 @@
+trajectory:
+  type: "coning"
+  duration_s: 1.5
+  thrust_norm: 0.022
+  z_initial: 1.0
+  params:
+    amplitude: 0.3
+    frequency_hz: 1.0

@@ -1,0 +1,8 @@
+trajectory:
+  type: "coning"
+  duration_s: 1.0
+  thrust_norm: 0.0
+  z_initial: 1.0
+  params:
+    amplitude: 1.0        # max action — saturation 영역 진입
+    frequency_hz: 3.0     # 3x frequency

@@ -1,0 +1,92 @@
+# 1v1 Pursuit-Evasion env config — **Phase B** (defender fragility processing).
+# Source: pe_1v1_phase_a.yaml (Phase A R_opp_crash=0).
+# Plan: docs/plans/phase_b_defender_fragility.md
+#
+# Δ vs Phase A:
+#   reward.action_smooth                   → 제거 (per-side로 분리)
+#   reward.action_smooth_attacker : 1.0e-4 (Phase A 동등)
+#   reward.action_smooth_defender : 5.0e-4 (5x — bang-bang 차단)
+#   reward.omega_coef_defender    : 0.0 → 2.0e-5 (자세 발산 신호 도입)
+#   reward.omega_clamp_max_sq     : 25.0 (|ω| > 5 rad/s 영역 페널티 saturate)
+#
+# Rationale (ams_s2_v2 c10 진단):
+#   stationary attacker 상대 defender_v10:
+#     def_crash 0.82, action sat_frac 0.99, |ω| mean 5.18 (>π=3.14)
+#   가설 A (bang-bang) + C (intrinsic fragile) 동시 STRONG.
+#   가설 B (OOD) REJECTED (stationary 상대로도 fragile).
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 5.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 5.0
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 1.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-1.5, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-3.0, -2.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  # Phase B — action_smooth per-side. legacy action_smooth 키 제거.
+  action_smooth_attacker: 1.0e-4    # Phase A 동등 — attacker 학습 dynamics 보존
+  action_smooth_defender: 5.0e-4    # Phase B B1 — bang-bang 차단 (5x)
+  existential: 0.0002
+  existential_w1: 0.1
+  # Phase B — defender omega 신호 도입 + clamp.
+  omega_coef_attacker: 5.0e-5       # Phase A 동등
+  omega_coef_defender: 2.0e-5       # Phase B B2 — 0 → 2e-5
+  omega_clamp_max_sq:  25.0         # Phase B B2 — |ω|² > 25 (=|ω|>5) 페널티 saturate
+  chase_coef:        0.0002
+  chase_coef_init:   0.001
+  chase_coef_final:  0.0002
+  chase_alpha:       1.0
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.5
+  decay_steps:       80000
+  R_mission_win: 3.0
+  R_captured: -1.0
+  R_timeout: 0.0
+  R_capture_win: 1.0
+  R_mission_failed: -3.0
+  R_timeout_win: 0.0
+  R_self_crash: -3.0
+  R_opp_crash:   0.0                # Phase A P0 유지
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793   # Phase B B3 (보류) — 결과 보고 ±π/2 검토

@@ -31,8 +31,8 @@ from utils.realtime_plotter import RealtimePlotter
 
 
 DRONE_CONFIGS = {
-    "cf2x": "configs/cf2x/drone_params.yaml",
-    "nova":  "configs/nova/drone_params.yaml",
+    "cf2x": "configs/drones/cf2x.yaml",
+    "nova":  "configs/drones/nova.yaml",
 }
 
 

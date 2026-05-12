@@ -1,0 +1,35 @@
+# Body-rate trajectory test 정의 — scripts/visualize_rate_controller.py --mode trajectory에서 사용.
+#
+# action sequence는 [T_norm, wx_ref_norm, wy_ref_norm, wz_ref_norm] (각각 [-1, 1] 정규화).
+# 실제 명령 = action * (max_thrust 또는 max_body_rate) — controller가 변환.
+#
+# type 별 params:
+#   yaw_spin       : 제자리 yaw 회전 (가장 단순 — z 유지 안정)
+#   coning         : wx, wy sin/cos 90° 위상차 → 원뿔 운동 (cross-axis coupling 검증)
+#   figure8        : wx/wy 다른 주파수 sin → 8자 패턴
+#   random_smooth  : OU process Gaussian noise → RL-like smooth action 분포 시뮬
+
+trajectory:
+  type: "coning"            # yaw_spin | coning | figure8 | random_smooth
+  duration_s: 3.0           # trajectory 지속 시간 (stabilize 0.5s + 이 값)
+  thrust_norm: 0.0          # T_norm 상수, 0 → hover thrust (m·g)
+  z_initial: 1.0            # 시작 z 위치 (m)
+
+  params:
+    # ----- yaw_spin -----
+    wz_norm: 0.3            # action[3] 상수 (= 0.3·π rad/s ≈ 54°/s)
+
+    # ----- coning -----
+    amplitude: 0.3          # action[1], action[2]의 peak (= 0.3·π rad/s)
+    frequency_hz: 1.0       # 1Hz → 1초에 한 바퀴
+
+    # ----- figure8 -----
+    amp_x: 0.3
+    amp_y: 0.3
+    freq_x_hz: 1.0
+    freq_y_hz: 0.5
+
+    # ----- random_smooth -----
+    sigma: 0.3              # Gaussian std on each axis (action units)
+    correlation_time_s: 0.1 # OU process time constant
+    seed: 42

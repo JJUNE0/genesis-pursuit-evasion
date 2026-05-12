@@ -1,0 +1,84 @@
+# 1v1 Pursuit-Evasion env config — **Phase A** (R_opp_crash redesign).
+# Source: pe_1v1_default.yaml (Phase 1.0 defender pretrain) — single-key delta.
+# Plan: docs/plans/phase_a_r_opp_crash.md
+#
+# Δ vs default:
+#   reward.R_opp_crash : 0.5 → 0.0
+#
+# Rationale (S1 diagnostic, AMS-S2 c12→c20):
+#   captured_rate 0.90 → 0.48, att_crash_rate 0.005 → 0.36, ep_len +57%.
+#   defender expected reward: capture path ≈ harassment path → 더 쉬운
+#   harassment 정책 학습. R_opp_crash=0 으로 expected reward 분리.
+#   minimax 부등식 (R_opp_crash ≤ R_capture_win=1.0) 약화된 등호 만족.
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 5.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 5.0
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 1.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-1.5, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-3.0, -2.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  action_smooth: 0.0001
+  existential: 0.0002
+  existential_w1: 0.1
+  omega_coef_attacker: 5.0e-5
+  omega_coef_defender: 0.0
+  chase_coef:        0.0002
+  chase_coef_init:   0.001
+  chase_coef_final:  0.0002
+  chase_alpha:       1.0
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.5
+  decay_steps:       80000
+  R_mission_win: 3.0
+  R_captured: -1.0
+  R_timeout: 0.0
+  R_capture_win: 1.0
+  R_mission_failed: -3.0
+  R_timeout_win: 0.0
+  R_self_crash: -3.0
+  R_opp_crash:   0.0           # Phase A: 0.5 → 0.0 (P0)
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793

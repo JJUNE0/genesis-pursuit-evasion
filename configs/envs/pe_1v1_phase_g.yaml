@@ -1,0 +1,108 @@
+# 1v1 Pursuit-Evasion env config — **Phase G** (dense reward 강화 + spawn range 확대).
+# Source: pe_1v1_phase_f.yaml. Plan: docs/notes/PR-Q_phase_g_dense.md
+#
+# Δ vs Phase F — Phase F 학습 부진 처방 (사용자 관측 2026-04-30):
+#   spawn.attacker_init_pos.x   : [2.0, 4.0] → [0.5, 4.0]   (최소 거리 4m→1m)
+#   spawn.defender_init_pos.x   : [-4.0, -2.0] → [-4.0, -0.5]
+#   reward.goal_dense_coef_init : 0.01 → 0.03   (3×, A: coef 강화)
+#   reward.goal_dense_alpha     : 0.2 → 0.1     (0.5×, B: 신호 더 멀리)
+#   reward.chase_coef_*_init    : 3× (대칭)
+#   reward.chase_alpha_*        : 0.15 (0.5× 대칭)
+#
+# Rationale (Phase F 학습 5000 iter 분석):
+#   defender captured 1000 iter 0.54 peak → 5000 0.31 (timeout 0.41 hover trap)
+#   attacker mission 0.11 (Phase E의 0.55에서 5× 약화), timeout 0.56
+#   원인: dense signal 약함. dist=8m goal_dense=2e-3/step (R_mission=3.0의 0.07%)
+#         attacker가 goal 방향 학습 못 하고 timeout. defender도 chase 약해 hover.
+#   처방 A+B+spawn:
+#     - coef 3× : 신호 양적 강화 → gradient signal 충분
+#     - alpha 0.5× : 신호 거리 더 멀리 → 멀리서도 끌림
+#     - spawn 범위 확대 : 가까운 case도 포함해 chase/capture 학습 빨라짐
+#       → curriculum 효과 (가까이서 잡기 학습 후 멀리서도 일반화)
+#
+# 거리별 goal_dense 신호 비교:
+#   dist=8m: 0.03·exp(-0.8) = 1.35e-2 (Phase F: 2.0e-3, 6.7×)
+#   dist=4m: 0.03·exp(-0.4) = 2.0e-2
+#   dist=1m: 0.03·exp(-0.1) = 2.7e-2
+#   1000 step 누적 max ≈ 10-15 (R_mission_win=3 충분히 초과)
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 5.0    # Phase G — 5.0 → 8.0 (max_steps 1000 → 1600, maneuver 여유)
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 12.0
+
+spawn:
+  # Phase G — spawn 범위 확대 (가까이 ~ 멀리 다양). curriculum 효과.
+  attacker_init_pos:
+    x: [0.5, 4.0]                    # Phase F [2.0, 4.0] (최소 거리 4m → 1m)
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-4.0, -0.5]                  # Phase F [-4.0, -2.0] (대칭 확대)
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-10.0, -4.0]                  # 그대로
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  action_smooth_attacker: 1.0e-4
+  action_smooth_defender: 1.0e-4    # Phase G' (2026-04-30): 5.0e-4 → 1.0e-4. Phase B 도입 의도(bang-bang 차단)는 PR-O squashed Gaussian이 이미 해결. defender chase 부드러움 강제 부작용만 남아 있어 attacker 동등으로 약화. ams_s2_v8 viewer 관찰: defender 너무 천천히 따라감.
+  existential: 0.0002
+  existential_w1: 0.0
+  omega_coef_attacker: 2.0e-5
+  omega_coef_defender: 2.0e-5
+  omega_clamp_max_sq:  25.0
+  # Phase G — dense coef 3× + alpha 0.5× (A+B 조합)
+  chase_coef_attacker_init:   0.01     # Phase F 0.001 → 0.003 (3×)
+  chase_coef_attacker_final:  0.0002
+  chase_alpha_attacker:       0.3      # Phase F 0.3 → 0.15 (0.5×)
+  chase_coef_defender_init:   0.01      # Phase F 0.01 → 0.03 (3×)
+  chase_coef_defender_final:  0.0002
+  chase_alpha_defender:       0.3      # Phase F 0.3 → 0.15 (0.5×)
+  chase_coef:        0.0002
+  chase_alpha:       0.3
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01          # Phase F 0.01 → 0.03 (3×)
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.1           # Phase F 0.2 → 0.1 (0.5×)
+  decay_steps:       0
+  R_mission_win:    5.0                 # attacker
+  R_captured:      -3.0                 # attacker
+  R_timeout:        -1.0                # attacker
+  R_capture_win:    5.0                 # defender
+  R_mission_failed: -3.0                # defender
+  R_timeout_win:    -1.0                 # defender
+  R_self_crash:    -3.0         
+  R_opp_crash:      0.0
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

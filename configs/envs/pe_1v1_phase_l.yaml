@@ -1,0 +1,105 @@
+# 1v1 Pursuit-Evasion env config — **Phase L** (Phase K + spawn 확대).
+# Source: pe_1v1_phase_k.yaml. Plan: 2026-05-02 — Phase K (TanhMean) 학습 안정
+# 확인 후 spawn range 확대 단계 (외부 권장 Step 4: "안정 확인 후 spawn 확대").
+#
+# Δ vs Phase K:
+#   sim.episode_length_s          : 5.0 → 8.0          (거리 늘면 task 시간 필요)
+#   termination.bound_xyz         : 5.0 → 10.0
+#   spawn.attacker_init_pos.x     : [0.5, 1.5]   → [0.5, 4.0]
+#   spawn.defender_init_pos.x     : [-1.5, -0.5] → [-4.0, -0.5]
+#   g_mission.box.x               : [-3.0, -2.0] → [-10.0, -4.0]
+#
+# 변경 안 한 것 (Phase K 그대로 — 사용자 의도 "셋팅 그대로 스폰만"):
+#   chase_alpha_attacker: 1.0   chase_alpha_defender: 0.5
+#   chase_coef_attacker_init: 0.001  chase_coef_defender_init: 0.01
+#   goal_dense_alpha: 0.5    goal_dense_coef_init: 0.01
+#   R_mission/captured/timeout 모두 Phase E 동일 (±3, 0)
+#   decay_steps: 0   (dense constant)
+#   action_smooth_defender: 5e-4
+#   enable_wrench_saturation: true
+#
+# ⚠ alpha 그대로 + spawn 확대 시 dense 신호 거리:
+#   defender chase (alpha=0.5) at dist=8m: exp(-4)=0.018 → 0.01·0.018 = 1.8e-4/step
+#     → 1600 step 누적 ~0.29 (R_capture_win=3의 10%)
+#   attacker evade (alpha=1.0) at dist=4m: exp(-4)=0.018 → 0.001·0.018 = 1.8e-5/step (사실상 0)
+#   가까운 거리 (1-2m)에선 신호 충분하지만 멀리선 거의 0 — sparse 영역 학습 의존.
+#   결과 안 좋으면 alpha 조정 (다음 phase).
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 8.0    # Phase K 5.0 → 8.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 60.0
+  roll_max_deg: 60.0
+  z_floor: 0.1
+  v_max: 10.0
+  bound_xyz: 10.0          # Phase K 5.0 → 10.0
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 4.0]          # Phase K [0.5, 1.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-4.0, -0.5]        # Phase K [-1.5, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-10.0, -4.0]       # Phase K [-3.0, -2.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 0.99
+  progress_max: 0.0002
+  action_smooth_attacker: 1.0e-4
+  action_smooth_defender: 5.0e-4    # Phase K 그대로
+  existential: 0.0002
+  existential_w1: 0.1
+  omega_coef_attacker: 5.0e-5
+  omega_coef_defender: 2.0e-5
+  omega_clamp_max_sq:  25.0
+  chase_coef_attacker_init:   0.001
+  chase_coef_attacker_final:  0.0002
+  chase_alpha_attacker:       0.5       # Phase K 그대로
+  chase_coef_defender_init:   0.01
+  chase_coef_defender_final:  0.0002
+  chase_alpha_defender:       0.5       # Phase K 그대로
+  chase_coef:        0.0002
+  chase_alpha:       0.5
+  goal_dense_coef:        0.0002
+  goal_dense_coef_init:   0.01
+  goal_dense_coef_final:  0.0002
+  goal_dense_alpha:       0.5           # Phase K 그대로
+  decay_steps:       0                  # Phase K 그대로 (dense constant)
+  R_mission_win:    3.0
+  R_captured:      -3.0
+  R_timeout:        0.0
+  R_capture_win:    3.0
+  R_mission_failed: -3.0
+  R_timeout_win:    0.0
+  R_self_crash:    -3.0
+  R_opp_crash:      0.0
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

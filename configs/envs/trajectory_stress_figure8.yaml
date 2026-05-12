@@ -1,0 +1,10 @@
+trajectory:
+  type: "figure8"
+  duration_s: 1.5
+  thrust_norm: 0.1
+  z_initial: 1.0
+  params:
+    amp_x: 0.8
+    amp_y: 0.8
+    freq_x_hz: 2.0
+    freq_y_hz: 1.0
