@@ -1,0 +1,54 @@
+# Attacker PPO hyperparams — **PR-O squashed Gaussian variant** (Phase 1.5+).
+# Source: ppo_attacker.yaml. Plan: docs/notes/PR-O_squashed_gaussian.md
+#
+# Δ vs ppo_attacker.yaml:
+#   actor.distribution_cfg.class_name :
+#       GaussianDistribution → agents.squashed_gaussian.SquashedGaussianDistribution
+#
+# Rationale (diag_rpm_trace ams_s2_v4 c14):
+#   raw mean = [24.84, 15.17, 31.85, -18.42]  (boundary 32× 밖)
+#   std = [14.21, 16.33, 14.57, 9.02]  (boundary와 동급)
+#   stochastic eval saturation_frac = 1.000 (deterministic과 동일)
+#   → mean이 [-1, 1] boundary 밖으로 비가역 push.
+#   처방: tanh squashing으로 μ ∈ [-1, 1] 구조적 강제. SAC 표준 패턴.
+#
+# Ckpt 호환성: BROKEN (μ_raw scale 의미 다름). fresh init 필수.
+
+algorithm:
+  class_name: PPO
+  clip_param: 0.2
+  desired_kl: 0.01
+  entropy_coef: 0.0    # PR-O bug fix — squashed entropy override 미구현 상태에서 entropy_coef>0이 σ 무한 발산 trigger. squashing 자체가 [-1, 1] 강제하므로 regularization 불필요.
+  gamma: 0.99
+  lam: 0.95
+  learning_rate: 3.0e-4
+  max_grad_norm: 0.5    # Phase I+ — 1.0 → 0.5 (cycle 11 NaN crash fix, gradient 폭발 차단)
+  num_learning_epochs: 5
+  num_mini_batches: 4
+  schedule: adaptive
+  use_clipped_value_loss: true
+  value_loss_coef: 1.0
+
+actor:
+  class_name: MLPModel
+  hidden_dims: [256, 256, 256]
+  activation: tanh
+  distribution_cfg:
+    class_name: agents.squashed_gaussian.SquashedGaussianDistribution
+    init_std: 1.0
+    std_type: log     # scalar → log (std = exp(log_std), 항상 양수 보장. cycle 28 NaN crash fix)
+
+critic:
+  class_name: MLPModel
+  hidden_dims: [256, 256, 256]
+  activation: tanh
+
+obs_groups:
+  actor: [policy]
+  critic: [policy]
+
+num_steps_per_env: 32
+save_interval: 100
+run_name: attacker_squash_v0
+logger: wandb
+wandb_project: gpe_phase1

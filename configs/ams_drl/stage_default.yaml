@@ -1,0 +1,30 @@
+# PR-N — AMS-DRL stage definition (Phase 5 §5.2 / TODO.md §5.2).
+#
+# MVP scope: a single S2_alternating stage. Phase 5.0 / 5.1 (S0, S1) are
+# already covered by the standalone `train_defender.py` (Phase 1.0) and
+# `train_attacker.py` (Phase 1.5) — this YAML drives only the alternating
+# co-training loop after both v0 ckpts exist.
+#
+# Nash gate (CCG round 1+2 review):
+#   * `|attacker_winrate - defender_winrate| < epsilon`  for `window` cycles
+#     — payoff balance, robust to draws.
+#   * `draw_rate < draw_max`  for the same window — guards degenerate
+#     timeout-heavy equilibria from being mistaken for convergence.
+# At p=0.5 with n_h2h_episodes=400, the per-cycle SE ≈ 0.025; the 95% Wilson
+# half-width ≈ 0.049, i.e. the convergence band epsilon=0.05 is one CI wide.
+# eval_head_to_head.py reports Wilson 95% CI in JSON for proper error bars.
+
+stages:
+  - id: S2_alternating
+    train: [attacker, defender]   # alternating per cycle (A→B→C serial)
+    switch_every: 50              # PPO iterations per role per cycle
+    max_cycles: 20                # hard cap — orchestrator stops here even if not converged
+    nash_gate:
+      kind: rolling_avg
+      window: 5                   # last 5 cycles must all satisfy the band
+      epsilon: 0.05               # |att_wr - def_wr| < epsilon
+      draw_max: 0.2               # draw_rate < draw_max (CCG round 2 — was 0.3)
+      n_h2h_episodes: 400         # absolute total episodes per H2H eval (NOT × num_envs)
+    success_gate: null            # MVP — no early stop on one-sided dominance
+    attacker_policy: null         # initial actors are passed via CLI (--attacker_ckpt etc.)
+    defender_policy: null

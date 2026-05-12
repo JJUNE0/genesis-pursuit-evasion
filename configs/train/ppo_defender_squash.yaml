@@ -1,0 +1,43 @@
+# Defender PPO hyperparams — **PR-O squashed Gaussian variant** (Phase 1.0+).
+# Source: ppo_defender.yaml. Plan: docs/notes/PR-O_squashed_gaussian.md
+# Δ vs ppo_defender.yaml: actor.distribution_cfg.class_name → SquashedGaussianDistribution.
+# Rationale + ckpt 호환성: configs/train/ppo_attacker_squash.yaml 참조.
+
+algorithm:
+  class_name: PPO
+  clip_param: 0.2
+  desired_kl: 0.01
+  entropy_coef: 0.0    # PR-O bug fix — squashed entropy override 미구현 상태에서 entropy_coef>0이 σ 무한 발산 trigger. squashing 자체가 [-1, 1] 강제하므로 regularization 불필요.
+  gamma: 0.99
+  lam: 0.95
+  learning_rate: 3.0e-4
+  max_grad_norm: 0.5    # Phase I+ — 1.0 → 0.5 (cycle 11 NaN crash fix, gradient 폭발 차단)
+  num_learning_epochs: 5
+  num_mini_batches: 4
+  schedule: adaptive
+  use_clipped_value_loss: true
+  value_loss_coef: 1.0
+
+actor:
+  class_name: MLPModel
+  hidden_dims: [256, 256, 256]
+  activation: tanh
+  distribution_cfg:
+    class_name: agents.squashed_gaussian.SquashedGaussianDistribution
+    init_std: 1.0
+    std_type: log     # scalar → log (std = exp(log_std), 항상 양수 보장. cycle 28 NaN crash fix)
+
+critic:
+  class_name: MLPModel
+  hidden_dims: [256, 256, 256]
+  activation: tanh
+
+obs_groups:
+  actor: [policy]
+  critic: [policy]
+
+num_steps_per_env: 32
+save_interval: 100
+run_name: defender_squash_v0
+logger: wandb
+wandb_project: gpe_phase1

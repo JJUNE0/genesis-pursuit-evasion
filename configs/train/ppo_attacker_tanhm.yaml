@@ -1,0 +1,50 @@
+# Attacker PPO hyperparams — **PR-Q TanhMean Gaussian variant**.
+# Source: ppo_attacker_squash.yaml. Plan: ams_s2_v[10-13] NaN crash 6번 후
+# Squashed Gaussian 폐기, TanhMean으로 대체.
+#
+# Δ vs ppo_attacker_squash.yaml:
+#   actor.distribution_cfg.class_name :
+#     agents.squashed_gaussian.SquashedGaussianDistribution
+#       → agents.tanh_mean_gaussian.TanhMeanGaussianDistribution
+#   algorithm.max_grad_norm : 0.5 → 1.0 (Squashed용 Fix D 되돌림)
+#
+# Ckpt 호환성: BROKEN. fresh init 필수.
+
+algorithm:
+  class_name: PPO
+  clip_param: 0.2
+  desired_kl: 0.01
+  entropy_coef: 0.0
+  gamma: 0.99
+  lam: 0.95
+  learning_rate: 3.0e-4
+  max_grad_norm: 1.0
+  num_learning_epochs: 5
+  num_mini_batches: 4
+  schedule: adaptive
+  use_clipped_value_loss: true
+  value_loss_coef: 1.0
+
+actor:
+  class_name: MLPModel
+  hidden_dims: [256, 256, 256]
+  activation: tanh
+  distribution_cfg:
+    class_name: agents.tanh_mean_gaussian.TanhMeanGaussianDistribution
+    init_std: 1.0
+    std_type: scalar
+
+critic:
+  class_name: MLPModel
+  hidden_dims: [256, 256, 256]
+  activation: tanh
+
+obs_groups:
+  actor: [policy]
+  critic: [policy]
+
+num_steps_per_env: 32
+save_interval: 100
+run_name: attacker_tanhm_v0
+logger: wandb
+wandb_project: gpe_phase1
