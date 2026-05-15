@@ -29,6 +29,21 @@ from rsl_rl.runners import OnPolicyRunner
 from utils.cfg_dict import CfgDict
 
 
+# 2026-05-13 — 터미널 출력 간소화 (opt-in). 호출 시 rsl-rl Logger.log를
+# monkey-patch하여 print_minimal=True 강제 → 모든 "Mean episode {key}: ..."
+# extras 터미널 print skip. wandb / tensorboard 기록은 그대로.
+# train scripts가 `--minimal_log` flag 받으면 호출.
+def enable_minimal_terminal_log() -> None:
+    from rsl_rl.utils.logger import Logger as _RslRlLogger
+    _original = _RslRlLogger.log
+
+    def _patched(self, *args, **kwargs):
+        kwargs["print_minimal"] = True
+        return _original(self, *args, **kwargs)
+
+    _RslRlLogger.log = _patched
+
+
 def load_train_cfg(yaml_path: str | Path) -> dict[str, Any]:
     with open(yaml_path) as f:
         return yaml.safe_load(f)

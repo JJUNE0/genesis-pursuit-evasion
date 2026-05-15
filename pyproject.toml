@@ -7,7 +7,7 @@ name = "genesis-pursuit-evasion"
 version = "0.0.1"
 description = "1v1 quadrotor pursuit-evasion with asymmetric communication delay, direct forecaster, and AMS-DRL co-training on Genesis."
 readme = "README.md"
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 authors = [
     { name = "bjy6614", email = "bjy6614@gmail.com" },

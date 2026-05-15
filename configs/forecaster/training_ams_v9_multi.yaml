@@ -1,0 +1,75 @@
+# Phase 3c — Forecaster training on ams_v9 multi-cycle dataset (2026-05-14).
+#
+# Dataset = 5 cycles × 4000 episodes = 20000 episodes total, collected from
+# ams_v9 cycles {7, 8, 14, 17, 20} (selected for trajectory diversity:
+# attacker-dominant 7, balanced 8, balanced 14, defender-peak 17, draw-heavy 20).
+#
+# Replaces the single-ckpt ams_v7 c8 dataset to mitigate OOD risk during
+# Phase 3e variant deployment (where attacker meets diverse defender ckpts).
+#
+# Usage:
+#   python scripts/train_forecaster.py \
+#     --config configs/forecaster/training_ams_v9_multi.yaml
+
+# --- Data source (LIST of dirs — multi-cycle merge) ----------------------
+data_dir:
+  - "data/forecaster_data_ams_v9_c7"
+  - "data/forecaster_data_ams_v9_c8"
+  - "data/forecaster_data_ams_v9_c14"
+  - "data/forecaster_data_ams_v9_c17"
+  - "data/forecaster_data_ams_v9_c20"
+
+in_memory: true            # 5 × ~625 MB ≈ 3 GB RAM (safe on 32GB+)
+split_seed: 42             # 95/5 split applied per-dir for consistent val coverage
+
+# --- Tau range -----------------------------------------------------------
+tau_max: 50
+
+# --- Model ---------------------------------------------------------------
+model:
+  d_model: 256
+  n_heads: 8
+  n_enc_layers: 4
+  n_dec_layers: 4
+  ffn_ratio: 4
+  dropout: 0.1
+  attacker_dim: 18
+  defender_dim: 6
+  action_dim: 4
+  target_dim: 6
+
+# --- Training ------------------------------------------------------------
+batch_size: 256
+num_training_steps: 100000
+
+lr_max: 1.0e-4
+lr_min: 1.0e-5
+warmup_steps: 1000
+weight_decay: 1.0e-4
+betas: [0.9, 0.999]
+grad_clip: 1.0
+
+use_bf16: true
+
+num_workers: 0
+pin_memory: true
+
+# --- Validation ----------------------------------------------------------
+val_every: 5000
+val_subsample_size: 256
+val_tau_evals: [10, 25, 50]
+val_num_euler_steps: 20
+
+# --- Checkpoint / log ----------------------------------------------------
+save_every: 10000
+log_every: 100
+
+log_dir: "logs/forecaster/ams_v9_multi_v1"
+
+# --- Misc ----------------------------------------------------------------
+seed: 42
+backend: "gpu"
+
+wandb_project: "forecaster"
+wandb_run_name: null       # null → ams_v9_multi_v1_seed42
+wandb_mode: "online"

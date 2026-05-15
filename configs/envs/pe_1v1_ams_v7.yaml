@@ -1,0 +1,174 @@
+# 1v1 Pursuit-Evasion env config — **Phase M-AMS** (Phase M + relaxed crash).
+# Source: pe_1v1_phase_m.yaml. Plan: 2026-05-04 — ams cycle 중 일시적 자세 발산으로
+# episode 조기 종료 (long-pursuit 데이터 손실) 완화. envelope 30° 확대 + 속도
+# cap 완화. attitude_penalty(50-80°)가 진짜 regulator 역할.
+#
+# Δ vs Phase M:
+#   pitch_max_deg : 60 → 80   (자세 발산 안전망 확대)
+#   roll_max_deg  : 60 → 80
+#   v_max         : 10 → 15   (속도 cap 완화)
+#   (이외 모두 동일 — reward, spawn, goal, attitude_pad/coef, F3)
+#
+# Attitude penalty growth (pad=50°, coef=5e-4 — Phase M 동일):
+#   60°: 0.05/step (mild)
+#   70°: 0.20/step (강함)
+#   80°: 0.45/step (매우 강함)
+#   → 정책은 70°+ 영역 회피 학습. 80° hard threshold는 안전망.
+#
+# 사용처: ams_drl 전용. 단일 학습은 pe_1v1_phase_m.yaml (60° 엄격) 사용.
+
+# 1v1 Pursuit-Evasion env config — **Phase M** (progress-based dense + R 강화).
+# Source: pe_1v1_phase_g.yaml. Plan: 2026-05-03 — Phase G hover trap 진단 처방.
+#
+# Δ vs Phase G:
+#   reward.progress_gamma         : 0.99   → 1.0    (hover시 r_progress=0 보장)
+#   reward.progress_max           : 0.0002 → 0.01   (progress 신호 50× 강화)
+#   reward.goal_dense_coef_init   : 0.01   → 0.0    (distance-based dense 비활성)
+#   reward.goal_dense_coef_final  : 0.01   → 0.0
+#   reward.R_mission_win          : 5.0    → 10.0   (mission > hover 보장)
+#   reward.R_capture_win          : 5.0    → 10.0   (대칭)
+#   reward.R_mission_failed       : -3.0   → -5.0   (대칭)
+#   reward.R_captured             : -3.0   → -5.0   (대칭)
+#   reward.R_self_crash           : -3.0   → -5.0   (assertion: <= R_captured 유지)
+#   chase_coef_*                  : Phase G 그대로 (0.01, α=0.3)
+#
+# Rationale (Phase G attacker 학습 진단 — logs/pe1v1_v0/attacker_v0/...1777771371):
+#   2000 iter 학습, attacker_win_rate 0% 고정, timeout 81%.
+#   원인: distance-based goal_dense (0.01·exp(-0.1·d_goal)) 박스 옆 hover 시
+#         1000 step 누적 +9.5 > R_mission_win=5 → hover trap 학습.
+#   처방:
+#     1. distance-based dense 비활성 (goal_dense_coef = 0)
+#     2. progress-based shaping 강화: r_progress = last_d - γ·d, cap 50×
+#     3. progress_gamma=1.0 — γ=0.99이면 hover에도 raw=0.01·d 미세 +
+#        γ=1.0이면 hover시 raw = d - d = 0 → 진정한 progress-only
+#     4. R_mission_win 키워 mission 진입 인센티브 절대 우위
+#     5. R_self_crash -5: assertion R_self_crash <= R_captured 만족 (자살 차단)
+#
+# 행동 비교 (1000 step episode, defender stationary 가정):
+#   hover at d=0.5m: r_progress=0, r_goal_dense=0, R_timeout=-1 → 누적 -1
+#   mission 진입 (200step, 5m 이동):
+#     r_progress 누적 ≈ 5m × cap 0.01 = +2 (cap saturate)
+#     R_mission_win +10 → 총 +12
+#   → mission +13 우위 ✓ 구조적으로 mission 학습 유도
+#
+# 도전 vs 도망 break-even:
+#   도전 expected = P·10 + (1-P)·(-5) = 15P-5
+#   도망 (timeout) = -1
+#   같음: 15P-5 = -1 → P* = 26.7% (Phase G +5/-3 25%와 비슷)
+#
+# Defender chase break-even:
+#   P* = |R_self_crash| / (|R_self_crash| + R_capture_win) = 5/15 = 33.3% (낮음 OK)
+#
+# 검증 영역 (Phase G 학습 영역 그대로):
+#   spawn att x [0.5, 4.0], def x [-4.0, -0.5], goal x [-10, -4]
+#   episode 5s, bound 12
+
+sim:
+  dt: 0.005
+  substeps: 16
+  episode_length_s: 5.0
+
+termination:
+  d_capture: 0.3
+  g_mission_radius: 0.3
+  pitch_max_deg: 150.0      # crash_on_attitude=False라 사실상 unused
+  roll_max_deg:  150.0
+  crash_on_attitude: false  # roll/pitch → episode 종료 X (penalty만)
+  v_max: 10.0               # crash_on_speed=False라 사실상 unused
+  crash_on_speed:    false  # 2026-05-04 — |v|>v_max → episode 종료 X.
+                            # velocity_penalty (pad 12, coef 0.01)가 regulate 전담.
+                            # 남은 hard crash trigger: z_floor / oob.
+  z_floor: -1000.0          # ← v3 (2026-05-12): 0.05→0.0. hard crash 무력화 (soft penalty 만).
+  bound_xyz: 12.0           # legacy fallback (per-axis 미명시 시 모든 축에 적용)
+  # per-axis bound — 2026-05-03 추가. attacker mission box [-10,-4]에 도달하려면 |x|>=10 필요.
+  # y/z는 spawn 영역 + 마진만 허용 (옆길/고도 이탈 처벌 빠르게).
+  bound_x: 12.0            # x: mission box 도달 영역
+  bound_y: 3.0             # 사용자 spec 2026-05-05: y 좌표 max ±3 (AMS 6 → 3). stage 4 ≠ AMS yaml.
+  bound_z: 6.0             # z 동일하게 ±3 cap
+
+spawn:
+  attacker_init_pos:
+    x: [0.5, 4.0]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  defender_init_pos:
+    x: [-4.0, -0.5]
+    y: [-1.0, 1.0]
+    z: [1.0, 1.5]
+  init_lin_vel: [0.0, 0.0, 0.0]
+
+g_mission:
+  box:
+    x: [-10.0, -4.0]
+    y: [-1.5, 1.5]
+    z: [1.0, 1.5]
+
+obs_scales:
+  pos: 0.2
+  vel: 0.2
+  ang_vel: 0.31831
+
+reward:
+  progress_gamma: 1.0               # Phase G 0.99 → 1.0 (hover시 progress=0)
+  progress_max:   0.01              # Phase G 0.0002 → 0.01 (50×, mission 신호 강화)
+  action_smooth_attacker: 5.0e-4    # F3 — banking 부드럽게 (1e-4 → 5e-4, symmetric)
+  action_smooth_defender: 5.0e-4
+  existential: 0.0002   # v16: 0 → 0.0002 복구 (v10 best 차이점)
+  existential_w1: 0.0
+  omega_coef_attacker: 5.0e-4       # F3 — rate 페널티 강화 (2e-5 → 5e-4, symmetric)
+  omega_coef_defender: 5.0e-4
+  omega_clamp_max_sq:  25.0
+  # 2026-05-03 — Quadratic attitude penalty.
+  # inspect_def_crash_timing 진단: def_crash 100% roll_bad (60° threshold 정확히 trigger).
+  # pad 안 (50°) 0, pad-threshold(50-60°) quadratic, threshold(60°) 도달 시 step당 -coef·100.
+  # coef=5e-4면 60° step당 -0.05; 100 step 유지하면 -5 → R_self_crash=-7과 동등 압력.
+  attitude_pad_deg: 60.0
+  attitude_coef:    2.0e-3    # 5.0e-4 => 2.0e-3
+  # 2026-05-04 — Soft boundary penalties (quadratic, symmetric per side).
+  # Diagnosed: relaxed crash 80° + attitude penalty로 roll banking 자제됐지만
+  # over-commit chase가 z_below(83.6%) + def_oob(39.8%) trigger. boundary
+  # 직전 부드러운 quadratic 압력으로 hard threshold 단번에 터치 차단.
+  velocity_pad:    10.0       # |v|>12에서 quadratic
+  velocity_coef:   0.01       # 5e-4 → 0.01 (20×, crash_on_speed=False 보완)
+                              # v=15: -0.09/step,  v=20: -0.64,  v=30: -3.24
+  z_safety_pad:    0.5        # ← v3-rev (2026-05-12, 사용자 spec): 0.5 이하 penalty.
+  z_safety_coef:   0.5        # ← v4 (2026-05-12): 1.0→0.5 (v3 절반). z=0.1: -0.08/step.
+  bound_safety_pad: 1.0       # bound-1m 이내에서 quadratic
+  bound_safety_coef: 0.01     # |x|=11.5(bound_x=12): -coef·0.25 = -2.5e-3/step
+  # Phase M — chase Phase G 그대로 유지 (학습 신호 분리). goal_dense만 비활성.
+  chase_coef_attacker_init:   0.01
+  chase_coef_attacker_final:  0.0002
+  chase_alpha_attacker:       1.0
+  chase_coef_defender_init:   0.02   # Set A: 0.01 → 0.02 (×2 chase)
+  chase_coef_defender_final:  0.0004
+  chase_alpha_defender:       1.0
+  chase_coef:        0.0002
+  chase_alpha:       1.0
+  goal_dense_coef:        0.0       # 비활성
+  goal_dense_coef_init:   0.01       # Phase G 0.01 → 0 (distance-based 끔)
+  goal_dense_coef_final:  0.01
+  goal_dense_alpha:       1.0
+  decay_steps:       0
+  # v11 (2026-05-05): Option B + timeout off — Nash 균형 강화 (AMS 본 학습).
+  # 사용자 결정 — stage 0~4 일관 reward로 Nash 진동 완화.
+  # Set A (2026-05-06): v12 base + chase_coef_defender ×2 (AMS 본 학습).
+  # v17 (2026-05-07): R_mission_win/capture_win 10→20 (Option 2 — Set A base + ×2).
+  R_mission_win:    20.0
+  R_captured:       -7.0
+  R_timeout:        -1.0
+  R_capture_win:    20.0
+  R_mission_failed: -7.0
+  R_timeout_win:     1.0
+  R_self_crash:    -10.0
+  R_opp_crash:       1.0
+
+action:
+  simulate_action_latency: false
+  action_latency_steps: 0
+  clip_actions: 1.0
+  action_mode: "rate"
+  rate_controller:
+    kp_rate: [0.05, 0.10, 0.10]
+    kd_rate: [1.0e-4, 5.0e-5, 1.0e-4]
+    max_body_rate: 3.141592653589793
+    enable_wrench_saturation: true

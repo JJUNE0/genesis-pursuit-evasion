@@ -118,6 +118,16 @@ class PursuitEvasion1v1Env(BasePursuitEvasionEnv):
         self.action_smooth_defender = float(self.reward_cfg.get(
             "action_smooth_defender", _legacy_action_smooth
         ))
+        # 2026-05-13 — action magnitude L2 penalty (사용자 spec).
+        # r = -coef × (a²).sum(dim=1). saturate (±1) steady-state 차단.
+        # action_smooth (diff²)는 step간 변동만 잡음 — saturate 유지면 diff=0이라 0.
+        # default 0 → backward compat (기존 yaml 영향 X).
+        self.action_mag_coef_attacker = float(self.reward_cfg.get(
+            "action_mag_coef_attacker", 0.0
+        ))
+        self.action_mag_coef_defender = float(self.reward_cfg.get(
+            "action_mag_coef_defender", 0.0
+        ))
         self.existential_w1 = float(self.reward_cfg["existential_w1"])
         # PR-F (2026-04-28) — angular velocity penalty per-side.
         # R_omega = -coef · ‖ω‖². attacker/defender 자기 ang_vel만 페널티.
@@ -404,10 +414,19 @@ class PursuitEvasion1v1Env(BasePursuitEvasionEnv):
         rot_a = quat_to_rotmat_flat(self.attacker_quat)                   # shape: (B, 9) body→world
         ang_a = self.attacker_ang_vel * self.ang_vel_scale                # shape: (B, 3) body
 
-        # τ-delayed defender world-frame state (Phase 3a). τ=0 → current.
-        delayed_kin = self.defender_state_history[0]                      # shape: (B, 6)
-        delayed_def_pos = delayed_kin[:, :3]                              # shape: (B, 3) world
-        delayed_def_vel = delayed_kin[:, 3:]                              # shape: (B, 3) world
+        # τ-delayed defender world-frame state (Phase 3a).
+        # CRITICAL backward compat (2026-05-13): when tau_delay == 0 read
+        # self.defender_pos / self.defender_vel directly. Going through
+        # defender_state_history[0] adds tensor index ops that perturb cuDNN
+        # nondeterministic ordering — same seed broke cycle 6-8 a_win
+        # 60-72% → 3-5% on ams_v6. See docs/notes/prompt_for_tau_delay_claude.md.
+        if self.tau_delay > 0:
+            delayed_kin = self.defender_state_history[0]                  # shape: (B, 6)
+            delayed_def_pos = delayed_kin[:, :3]                          # shape: (B, 3) world
+            delayed_def_vel = delayed_kin[:, 3:]                          # shape: (B, 3) world
+        else:
+            delayed_def_pos = self.defender_pos                           # shape: (B, 3) world
+            delayed_def_vel = self.defender_vel                           # shape: (B, 3) world
 
         # 상대 위치/속도 → attacker body frame (delayed defender vs current attacker)
         rel_pos_d = rotate_to_body_frame(
@@ -619,6 +638,8 @@ class PursuitEvasion1v1Env(BasePursuitEvasionEnv):
         r_progress = self.r_progress_buf
         action_diff = attacker_action - self.last_attacker_action
         r_smooth = -self.action_smooth_attacker * (action_diff * action_diff).sum(dim=1)
+        # 2026-05-13 — action magnitude L2 (saturate 차단).
+        r_action_mag = -self.action_mag_coef_attacker * (attacker_action * attacker_action).sum(dim=1)
         r_existential = torch.full(
             (self.num_envs,), self._existential_per_step, device=self.device, dtype=gs.tc_float,
         )
@@ -635,7 +656,7 @@ class PursuitEvasion1v1Env(BasePursuitEvasionEnv):
         # 2026-05-04 — soft boundary penalty (velocity / z floor / bound).
         r_safety = self._safety_penalty(self.attacker_pos, self.attacker_vel)
         r_terminal = self._terminal_reward_attacker()
-        return r_progress + r_smooth + r_existential + r_goal_dense + r_evade + r_omega + r_attitude + r_safety + r_terminal
+        return r_progress + r_smooth + r_action_mag + r_existential + r_goal_dense + r_evade + r_omega + r_attitude + r_safety + r_terminal
 
     def _defender_reward(self, defender_action: torch.Tensor) -> torch.Tensor:
         # Phase F — game_mode 분기.
@@ -647,6 +668,8 @@ class PursuitEvasion1v1Env(BasePursuitEvasionEnv):
         r_block = -self.r_progress_buf
         action_diff = defender_action - self.last_defender_action
         r_smooth = -self.action_smooth_defender * (action_diff * action_diff).sum(dim=1)
+        # 2026-05-13 — action magnitude L2 (saturate 차단).
+        r_action_mag = -self.action_mag_coef_defender * (defender_action * defender_action).sum(dim=1)
         # PR-D — defender chase dense (Gaussian on attacker-defender distance).
         # Phase E — defender r_chase에 defender-side coef 사용 (대칭화 의도 유지)
         r_chase = self.chase_coef_defender * torch.exp(-self.chase_alpha_defender * self.dist_to_attacker_defender)
@@ -667,7 +690,7 @@ class PursuitEvasion1v1Env(BasePursuitEvasionEnv):
         # 2026-05-04 — soft boundary penalty (velocity / z floor / bound).
         r_safety = self._safety_penalty(self.defender_pos, self.defender_vel)
         r_terminal = self._terminal_reward_defender()
-        return r_block + r_smooth + r_chase + r_omega + r_attitude + r_safety + r_terminal
+        return r_block + r_smooth + r_action_mag + r_chase + r_omega + r_attitude + r_safety + r_terminal
 
     def _terminal_reward_attacker(self) -> torch.Tensor:
         # mission/captured/timeout buckets are priority-resolved

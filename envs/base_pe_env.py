@@ -639,13 +639,19 @@ class BasePursuitEvasionEnv(abc.ABC):
         # Phase 3a — warmup-fill the τ-delay ring buffer with the new spawn
         # state for reset envs, so history[0] = current (not zero garbage)
         # for the first τ steps of the next episode.
-        n = int(envs_idx.numel())
-        fresh = torch.cat(
-            [self.defender_pos[envs_idx], self.defender_vel[envs_idx]], dim=1,
-        )                                                       # shape: (n, 6)
-        self.defender_state_history[:, envs_idx] = fresh.unsqueeze(0).expand(
-            self.defender_state_history.shape[0], n, 6,
-        )
+        # CRITICAL backward compat (2026-05-13): skip entirely when tau_delay
+        # == 0. The cat + expand + indexed assignment adds GPU ops even when
+        # the buffer is unused, perturbing cuDNN ordering and breaking seed
+        # reproducibility for ams_v6 baseline. See
+        # docs/notes/prompt_for_tau_delay_claude.md.
+        if self.tau_delay > 0:
+            n = int(envs_idx.numel())
+            fresh = torch.cat(
+                [self.defender_pos[envs_idx], self.defender_vel[envs_idx]], dim=1,
+            )                                                   # shape: (n, 6)
+            self.defender_state_history[:, envs_idx] = fresh.unsqueeze(0).expand(
+                self.defender_state_history.shape[0], n, 6,
+            )
 
         if self._attacker_policy is not None:
             self._attacker_policy.reset(envs_idx)
@@ -673,15 +679,19 @@ class BasePursuitEvasionEnv(abc.ABC):
     def _push_defender_history(self) -> None:
         """Roll the τ-delay ring buffer and write current defender state.
 
-        Layout along dim 0: [oldest, ..., newest]. After roll(-1), the
-        previously-newest entry slides to index ``buf_size-1-1`` and index 0
-        drops the oldest (wraps to ``-1``, immediately overwritten below).
-        Actor obs reads ``[0]`` = state τ steps ago. For τ=0 the buffer has
-        a single slot which holds the current state.
+        CRITICAL backward compat (2026-05-13): when ``tau_delay == 0`` this is
+        a no-op. Doing the roll+index even on a size-1 buffer added GPU ops
+        that perturbed cuDNN nondeterministic ordering — same seed produced
+        different cycle 6-8 trajectories (a_win 60-72% → 3-5% on ams_v6).
+        See docs/notes/prompt_for_tau_delay_claude.md for the incident.
+
+        Layout along dim 0: [oldest, ..., newest]. ``roll(-1, dims=0)`` wraps
+        element 0 to the end; the next line overwrites that wrapped slot with
+        the fresh state, so the buffer is always [oldest..., newest] after
+        both lines. Actor obs reads ``[0]`` = state τ steps ago.
         """
-        # torch.roll wraps element 0 to the end; the next line overwrites
-        # that wrapped slot with the fresh state, so the buffer is
-        # always [oldest..., newest] after both lines.
+        if self.tau_delay == 0:
+            return
         self.defender_state_history = torch.roll(
             self.defender_state_history, shifts=-1, dims=0,
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from agents.forecaster.replay_buffer import ForecasterBatch, ForecasterReplayBuffer
+from agents.forecaster_legacy.replay_buffer import ForecasterBatch, ForecasterReplayBuffer
 
 
 def _make_buf(capacity=100, K=10, H=5, s_a_dim=18, s_d_dim=18, num_actions=4):

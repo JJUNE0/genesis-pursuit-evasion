@@ -1,0 +1,37 @@
+# Phase 3b — Forecaster data collection default config (2026-05-13).
+#
+# Usage:
+#   python scripts/collect_forecaster_data.py --config configs/forecaster/data_collection_default.yaml
+#
+# CLI args override these defaults. attacker_ckpt / defender_ckpt 는 반드시
+# 명시 (default 값은 placeholder).
+
+# --- Ckpt source ---------------------------------------------------------
+# ams logs_root 의 산출물 (attacker_v{K}.pt / defender_v{K}.pt). cfgs.pkl 는
+# 같은 디렉토리에서 자동 로드된다 (cfgs_pkl_source: "auto").
+attacker_ckpt: "logs/pe1v1_v0/ams_s2/attacker_v16.pt"
+defender_ckpt: "logs/pe1v1_v0/ams_s2/defender_v16.pt"
+
+# --- Cfg source (CRITICAL) -----------------------------------------------
+# "auto" = attacker_ckpt 디렉토리에서 cfgs.pkl 자동 찾기 (eval_head_to_head 패턴)
+# 또는 경로 직접 지정 가능 (e.g. "logs/.../cfgs.pkl")
+cfgs_pkl_source: "auto"
+# null 이면 cfgs.pkl 사용. 경로 지정 시 env_cfg 만 override 하고 warning.
+env_yaml_override: null
+
+# --- Collection params ---------------------------------------------------
+num_episodes: 20000
+num_envs: 1024
+max_episode_steps: 0   # 0 = env.max_episode_length 사용
+tau_delay: 0           # forecaster 데이터 수집은 항상 0 (학습 시 임의 τ slice)
+
+# --- Output --------------------------------------------------------------
+output_dir: "data/forecaster_data_v1/"
+seed: 42
+
+# --- Runtime -------------------------------------------------------------
+backend: "gpu"   # "gpu" | "cpu"
+
+# --- Logging / progress --------------------------------------------------
+log_every_n_episodes: 100
+checkpoint_progress_every: 1000

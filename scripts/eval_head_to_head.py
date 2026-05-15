@@ -201,12 +201,20 @@ def main() -> int:
     target_episodes = int(args.n_episodes)
     n_done_total = 0
     step_count = 0
+    # 2026-05-13 — action distribution 추적 (사용자 spec). raw action (env clip 전)
+    # 모음. attacker는 외부 attacker.step() 결과 ego_actions. defender는 env가
+    # 내부 scripted_defender.step() 호출 후 env.last_defender_action에 clipped 저장.
+    action_buf_attacker: list[np.ndarray] = []
+    action_buf_defender: list[np.ndarray] = []
     max_steps_safety = (
         int(args.max_steps_per_episode) if args.max_steps_per_episode > 0
         else env.max_episode_length
     ) * max(1, target_episodes // env.num_envs + 4)
 
     env.reset()
+    # Per-env step counter for episode-length tracking. Reset on done.
+    per_env_step = torch.zeros((env.num_envs,), device=env.device, dtype=torch.long)
+    episode_lengths: list[int] = []
     t0 = time.time()
     while n_done_total < target_episodes and step_count < max_steps_safety:
         # External attacker step (B2 — env doesn't reset our external attacker).
@@ -215,14 +223,23 @@ def main() -> int:
             opponent_state=env._defender_state_dict(),
             g_mission=env.g_mission,
         )
+        per_env_step += 1
         _obs, _rew, done, _extras = env.step(ego_actions)
         n_done_total += int(done.sum().item())
+
+        # action 모음 (eval과 동일 schema). raw attacker = ego_actions.
+        # defender는 env가 내부 step 후 last_defender_action에 저장.
+        action_buf_attacker.append(ego_actions.detach().cpu().numpy().copy())
+        action_buf_defender.append(env.last_defender_action.detach().cpu().numpy().copy())
 
         # B2 — keep attacker.last_action in sync with env.last_attacker_action,
         # which env already zeroed for done envs inside reset_idx.
         done_idx = done.nonzero(as_tuple=False).reshape(-1)
         if done_idx.numel() > 0:
             attacker.reset(done_idx)
+            # Record episode lengths + reset per-env counter
+            episode_lengths.extend(per_env_step[done_idx].cpu().tolist())
+            per_env_step[done_idx] = 0
 
         counts["mission"]   += int(env.last_term["mission"].sum().item())
         counts["captured"]  += int(env.last_term["captured"].sum().item())
@@ -243,17 +260,57 @@ def main() -> int:
 
     wall_sec = time.time() - t0
 
+    # 2026-05-13 — action distribution per role (사용자 spec).
+    # raw value 저장 (env clip 전). saturation % = |clipped|>0.95.
+    def _action_dist_summary(actions_np: np.ndarray) -> dict:
+        labels = ["T_norm", "wx_ref", "wy_ref", "wz_ref"]
+        out = {}
+        for i, label in enumerate(labels):
+            col = actions_np[:, i]
+            clipped = np.clip(col, -1.0, 1.0)
+            out[label] = {
+                "mean":        float(clipped.mean()),
+                "std":         float(clipped.std()),
+                "min":         float(clipped.min()),
+                "max":         float(clipped.max()),
+                "sat_gt95":    float((np.abs(clipped) > 0.95).mean()),
+                "raw_abs_max": float(np.abs(col).max()),
+            }
+        return out
+
+    actions_att = np.concatenate(action_buf_attacker, axis=0) if action_buf_attacker else np.zeros((0, 4))
+    actions_def = np.concatenate(action_buf_defender, axis=0) if action_buf_defender else np.zeros((0, 4))
+    action_dist_attacker = _action_dist_summary(actions_att) if actions_att.size else {}
+    action_dist_defender = _action_dist_summary(actions_def) if actions_def.size else {}
+
     # AMS-DRL convention.
     attacker_wins = counts["mission"]
     defender_wins = counts["captured"] + counts["att_crash"] + counts["att_oob"]
     draws = counts["timeout"] + counts["def_crash"] + counts["def_oob"]
     n_eff = max(1, n_done_total)
 
+    # Episode-length stats (added 2026-05-14 for spawn-stress evaluation).
+    if episode_lengths:
+        ep_lens_arr = np.array(episode_lengths, dtype=np.int64)
+        ep_len_stats = {
+            "mean": float(ep_lens_arr.mean()),
+            "min":  int(ep_lens_arr.min()),
+            "p10":  float(np.percentile(ep_lens_arr, 10)),
+            "p50":  float(np.percentile(ep_lens_arr, 50)),
+            "p90":  float(np.percentile(ep_lens_arr, 90)),
+            "max":  int(ep_lens_arr.max()),
+            "std":  float(ep_lens_arr.std()),
+        }
+    else:
+        ep_len_stats = {"mean": 0.0, "min": 0, "p10": 0.0, "p50": 0.0,
+                        "p90": 0.0, "max": 0, "std": 0.0}
+
     result = {
         "attacker_winrate": round(attacker_wins / n_eff, 4),
         "defender_winrate": round(defender_wins / n_eff, 4),
         "draw_rate":        round(draws / n_eff, 4),
         "n_episodes":       n_done_total,
+        "episode_length":   ep_len_stats,
         "wilson_ci_95": {
             "attacker": list(_wilson_ci(attacker_wins, n_done_total)),
             "defender": list(_wilson_ci(defender_wins, n_done_total)),
@@ -268,6 +325,8 @@ def main() -> int:
         "num_envs": int(args.num_envs),
         "backend": args.backend,
         "wall_sec": round(wall_sec, 2),
+        "action_dist_attacker": action_dist_attacker,
+        "action_dist_defender": action_dist_defender,
     }
 
     print(json.dumps(result, indent=2))

@@ -458,6 +458,71 @@ Wave 5 (단독): Variant 4
 
 ---
 
+### Phase 3f — τ-Unaware Flow Matching Forecaster 🔴 (paper main contribution 강화, 2026-05-14)
+
+**Plan**: `docs/plans/phase_3f_tau_unaware_flow_forecaster.md`
+
+**목표**: τ 를 explicit input 으로 받지 **않는** flow-matching forecaster — deployment 시 instantaneous τ 측정 인프라 불필요. Phase 3c τ-aware forecaster 와 ablation 비교 → "τ-unaware variant 가 competitive performance 달성" 의 paper main claim 강화.
+
+#### 동기 (현재 ams_v9_multi_v1 한계)
+- Phase 3c forecaster 는 τ 를 sinusoidal embed → encoder context 에 명시 input
+- 현실 (cellular relay + crypto + queueing) 에서는 instantaneous τ 가 stochastic → measurement 어려움
+- 단일 모델이 τ 모르고도 작동해야 deployment realism
+
+#### 핵심 설계 — τ leak 차단
+- **Fixed K=50 step history** (어떤 τ 든 input shape 동일)
+- 마지막 observed defender state 1 step (staleness 정보 미포함)
+- Encoder 에 τ embedding / position offset / sequence length 모두 τ-independent
+- → Model 이 "s^d_last 가 t-1 시점인지 t-50 시점인지 알 방법 없음"
+
+#### Architecture (256 d_model, 4 enc + 4 dec layers, 표준 transformer)
+- Input: `s^a_history (B, 50, 18) + s^d_last (B, 1, 6) + a^a_history (B, 50, 4)`
+- Output: `(B, 6)` defender state at current t (t-attacker body frame, scaled)
+- Flow matching head: 단일 step prediction (multi-step 의미 없음 — τ 모르므로)
+
+#### 데이터 (기존 재사용, 추가 수집 0)
+- `data/forecaster_data_ams_v9_c{7,8,14,17,20}/` 그대로
+- 신규 `agents/forecaster/tau_unaware/dataset.py` 가 τ-strip + K-fixed window slice + single-step target 처리
+
+#### 6-way comparison set (paper main table)
+| # | Forecaster | τ knowledge | 학습 필요 |
+|---|---|---|---|
+| 1 | No FC | — | ✗ |
+| 2 | Naive const-vel | implicit | ✗ (수식만) |
+| 3 | τ-aware deterministic | knows τ | ✓ (~2h) |
+| 4 | τ-aware flow (Phase 3c, ams_v9_multi_v1) | knows τ | ✗ (기존) |
+| 5 | **τ-unaware flow (main contribution)** | **NO τ** | ✓ (~2h) |
+| 6 | τ-unaware deterministic | NO τ | ✓ (~2h) |
+
+→ 신규 학습 3종 × 2시간 = ~6시간
+
+#### 작업 (1-1.5일)
+- [ ] 🔴 `agents/forecaster/tau_unaware/{dataset, model, flow, trainer}.py` 작성 (2-3h)
+  - 기존 `agents/forecaster/{...}` 수정 X (CLAUDE.md §1)
+- [ ] 🔴 `scripts/train_tau_unaware_forecaster.py` + yaml (1h)
+- [ ] 🔴 `tests/test_tau_unaware_forecaster.py` 5 tests (1h)
+  - τ leak unit test (input tensor τ-independent 검증) ⭐
+  - frame transform parity, CFM loss overfit, sampling shape 등
+- [ ] 🔴 Smoke training 5K step + sanity (30분)
+- [ ] 🔴 Full training 100K step (2h)
+- [ ] 🔴 τ-unaware deterministic baseline 학습 (#6, ~2h)
+- [ ] 🔴 τ-aware deterministic baseline 학습 (#3, ~2h)
+- [ ] 🔴 6-way comparison eval (a5, a7 pair 우선) plot + 표 (2-3h)
+
+#### Acceptance criteria
+- 5 unit tests pass (τ leak test 포함)
+- Full training val MSE 가 τ-aware ams_v9_multi_v1 의 3× 이내 (위험 1 mitigation gate)
+- Phase 3c τ-aware 회귀 0 (기존 7 tests pass 유지)
+- 기존 env / data 코드 수정 0
+
+#### Paper claim 강화
+- **Before**: "Forecaster recovers 60-86% of delay penalty (plug-in)"
+- **After**: "**τ-unaware** forecaster recovers comparable performance to τ-aware reference, **without delay measurement at deployment**"
+
+**진입 조건**: Phase 3a, 3c 완료 ✓ (이미 만족)
+
+---
+
 ## Phase 4 — Sim-to-Real (deferred) 🟢
 
 > 너무 멀어서 CORL 범위 외. SimpleFlight 5 factors, ROS bridge, mocap.
@@ -506,14 +571,62 @@ Wave 5 (단독): Variant 4
 
 ## 🎯 CORL 2026 진행 순서 (Critical Path)
 
-1. **오늘**: ams_v6 cycle 20 완료 대기 (~30분)
-2. **D+1**: Cross-eval matrix + Phase 3a (τ-delay 구현)
-3. **D+2**: Phase 3b 데이터 수집 + Phase 3d BPQL critic 수정
-4. **D+3~4**: Phase 3c Forecaster 학습 + validation
-5. **D+5~7**: Phase 3e 5 variant 학습 (병렬 wave)
-6. **D+7~8**: τ sweep eval + plot + paper draft
+### ✅ 완료 (D-7 ~ 오늘)
+- ✅ ams_v9 (20 cycle) 학습 완료
+- ✅ Phase 3a, 3b, 3c, 3d 코드 + 데이터 + Phase 3c forecaster (`ams_v9_multi_v1`) 학습 완료
+- ✅ Cross-pair sweep (18 pair × τ=0) — defender-strong / balanced pair 식별
+- ✅ Phase 1 plug-in eval (τ=50 forecaster benefit) — a5/a7 pair 60-86% recovery
+- ✅ Episode-length sweep (orig vs max-edge spawn vs close-goal) → spawn 변경 의미 확인
 
-CORL 마감 임박. 일정 빡빡하지만 가능 범위.
+### 🔴 진행 중 (재정의된 plan, 2026-05-14)
+- **D+1 (1-1.5일)**: **Phase 3f τ-unaware flow forecaster** 학습 + 6-way comparison
+- **D+2~3 (선택)**: Phase 3e from-scratch variant 학습 (시간 허용 시)
+- **D+3~5**: Plug-in cross-pair sweep 확장 (18 pair × τ=50 × {no_fc, naive_fc, our_fc, tau_unaware_fc})
+- **D+5~7**: Paper draft + ablation table + figure 작성
+
+### 데이터 자산 (현재 보유)
+- `data/forecaster_data_ams_v9_c{7,8,14,17,20}/` (5 cycle × 4000 ep, 1.8 GB)
+- `logs/forecaster/ams_v9_multi_v1/best.pt` (Phase 3c τ-aware, val MSE 0.0064)
+- `logs/phasef/ams_v9/cycle_001~020/` (AMS-DRL 학습 결과)
+- `logs/forecaster/comparisons/eval_c8/` (Phase 1 plug-in eval 결과)
+
+### Motivation 정리 (시간 부족 → 정직 framing)
+- τ_max=50 (=250ms at 200Hz) — cellular relay + crypto + air interface latency 영역
+- τ ≥ 100 long-delay regime 은 future work (episode length 부족, ams_drl 재학습 risk)
+- 5× longer than prior delayed RL benchmarks (Wu 2025, BPQL evaluate at τ ≤ 10)
+
+CORL 마감 임박. Phase 3f 가 paper main contribution 강화 (τ-unaware claim).
+
+---
+
+## 📝 Experiment Report 규칙 (2026-05-15 추가)
+
+**모든 실험 (학습/eval/analysis) 종료 시 즉시 `docs/results/E{n}_<short_name>.md` 보고서 작성**.
+
+### 보고서 필수 항목
+- **Run date** + status (✅ Complete / 🔄 In progress / ❌ Failed)
+- **Goal** — 어떤 paper claim/contribution 에 사용
+- **Method** — script + dataset + hyperparams + env config
+- **Results** — 표 + 핵심 수치 (paper headline 직접 추출 가능 형태)
+- **Paper 사용** — Figure 번호, caption draft, 본문 sentence draft
+- **Files / Locations** — script, output JSON, figure path, log path
+- **Reproducibility** — exact CLI command + 시간 + seed
+- **Devil's Advocate** — limitation, 정직 포기, future work
+- **Next experiments using this data** — downstream dependencies
+
+### 작성 시점
+- 학습 완료 즉시 (사용자 보고 직후 같은 turn)
+- Eval 완료 즉시
+- Analysis script 종료 즉시
+
+### 완료된 보고서
+- ✅ [E5_motion_stats.md](results/E5_motion_stats.md) — Defender motion vs r_cap (Intro Figure 1, 2026-05-15)
+- 🔄 E1 forecaster intrinsic — 진행 중 (Det baseline 학습 + 2 추가 seed)
+- 🔄 E2 5-forecaster comparison — 코드 작성 완료, 학습 종료 후 실행
+- ⏳ E3 random delay deployment — 코드 작성 예정
+- ⏳ E4 misspecification grid — 코드 작성 예정
+- ⏳ E6 DR stress test — nice-to-have
+- ⏳ E7 training curves — appendix
 
 ---
 

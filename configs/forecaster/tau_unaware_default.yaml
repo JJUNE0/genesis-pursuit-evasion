@@ -1,0 +1,72 @@
+# Phase 3f — τ-Unaware Forecaster training config (TODO §3f, 2026-05-14).
+#
+# Default: trains the **flow-matching** τ-unaware forecaster on ams_v9
+# multi-cycle dataset. Switch --head_type deterministic for ablation row #6.
+#
+# Usage:
+#   python scripts/train_tau_unaware_forecaster.py \
+#     --config configs/forecaster/tau_unaware_default.yaml
+
+# --- Data source (multi-cycle list) --------------------------------------
+data_dir:
+  - "data/forecaster_data_ams_v9_c7"
+  - "data/forecaster_data_ams_v9_c8"
+  - "data/forecaster_data_ams_v9_c14"
+  - "data/forecaster_data_ams_v9_c17"
+  - "data/forecaster_data_ams_v9_c20"
+
+in_memory: true            # ~3GB RAM, big speedup
+split_seed: 42
+
+# --- History window (CRITICAL: τ-independent input shape) ----------------
+history_K: 50              # τ ∈ [1, history_K]; model never sees τ value
+
+# --- Model ---------------------------------------------------------------
+head_type: "flow"          # "flow" (main) | "deterministic" (ablation row #6)
+model:
+  d_model: 256
+  n_heads: 8
+  n_enc_layers: 4
+  n_dec_layers: 4          # ignored when head_type=deterministic
+  ffn_ratio: 4
+  dropout: 0.1
+  attacker_dim: 18
+  defender_dim: 6
+  action_dim: 4
+  target_dim: 6
+
+# --- Training ------------------------------------------------------------
+batch_size: 256
+num_training_steps: 100000
+
+lr_max: 1.0e-4
+lr_min: 1.0e-5
+warmup_steps: 1000
+weight_decay: 1.0e-4
+betas: [0.9, 0.999]
+grad_clip: 1.0
+
+use_bf16: true
+
+num_workers: 0
+pin_memory: true
+
+# --- Validation (per-τ MSE sweep on fixed subsample) ---------------------
+val_every: 5000
+val_subsample_size: 256
+val_tau_evals: [10, 25, 50]
+val_num_euler_steps: 10    # default 10 (vs 20 for Phase 3c) — paper deployment realism
+
+# --- Checkpoint / log ----------------------------------------------------
+save_every: 10000
+log_every: 100
+
+log_dir: "logs/forecaster/tau_unaware_v1"
+
+# --- Misc ----------------------------------------------------------------
+seed: 42
+backend: "gpu"
+
+wandb_project: "forecaster"
+wandb_run_name: null       # null → tau_unaware_v1_seed42
+wandb_mode: "online"

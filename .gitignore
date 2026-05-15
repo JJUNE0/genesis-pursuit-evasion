@@ -52,3 +52,7 @@ htmlcov/
 .pre-commit-cache/
 
 # cfgs.pkl is allowed under run dirs only (already covered by logs/ etc.)
+data/
+.claude/                    
+.omc/
+EOF

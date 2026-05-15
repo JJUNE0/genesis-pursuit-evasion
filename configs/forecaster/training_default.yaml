@@ -1,0 +1,68 @@
+# Phase 3c — Forecaster training config (TODO §3c, 2026-05-13).
+#
+# Usage:
+#   python scripts/train_forecaster.py --config configs/forecaster/training_default.yaml
+#
+# CLI args override these defaults.
+
+# --- Data source ---------------------------------------------------------
+data_dir: "data/forecaster_data_ams_v7_c8"
+in_memory: true             # preload all train+val episodes (~2.5 GB RAM, big speedup)
+split_seed: 42              # deterministic 95/5 episode-level split
+
+# --- Tau range -----------------------------------------------------------
+tau_max: 50                 # batch τ ~ U[1, 50]; t ≥ tau_max for valid samples
+
+# --- Model ---------------------------------------------------------------
+model:
+  d_model: 256
+  n_heads: 8
+  n_enc_layers: 4
+  n_dec_layers: 4
+  ffn_ratio: 4
+  dropout: 0.1
+  attacker_dim: 18
+  defender_dim: 6
+  action_dim: 4
+  target_dim: 6
+
+# --- Training ------------------------------------------------------------
+batch_size: 256
+num_training_steps: 100000
+
+# AdamW
+lr_max: 1.0e-4
+lr_min: 1.0e-5
+warmup_steps: 1000
+weight_decay: 1.0e-4
+betas: [0.9, 0.999]
+grad_clip: 1.0
+
+# Mixed precision (bf16; no GradScaler needed for bf16)
+use_bf16: true
+
+# DataLoader
+num_workers: 0              # in_memory=true 이면 0이 가장 빠름 (worker fork 비용 회피)
+pin_memory: true
+
+# --- Validation ----------------------------------------------------------
+val_every: 5000
+val_subsample_size: 256
+val_tau_evals: [10, 25, 50]
+val_num_euler_steps: 20
+
+# --- Checkpoint / log ----------------------------------------------------
+save_every: 10000
+log_every: 100              # wandb + console
+
+# Output
+log_dir: "logs/forecaster/ams_v7_c8_v1"
+
+# --- Misc ----------------------------------------------------------------
+seed: 42
+backend: "gpu"              # "gpu" | "cpu"
+
+# Wandb
+wandb_project: "forecaster"
+wandb_run_name: null        # null → auto: ams_v7_c8_v1_seed{seed}
+wandb_mode: "online"        # "online" | "offline" | "disabled"

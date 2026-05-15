@@ -58,6 +58,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import yaml
 import json
 import shutil
 import signal
@@ -156,6 +157,14 @@ def parse_args() -> argparse.Namespace:
                    help="Phase E.1 (2026-05-08). Critic obs에 opponent ground truth "
                         "(vel+ang_vel+quat=10D) 추가. Actor obs는 그대로. 자식 "
                         "train_attacker/defender에 전달.")
+    p.add_argument("--deterministic", action="store_true",
+                   help="GPU deterministic algorithms (paper-grade reproducibility). "
+                        "Default OFF — 학습 빠름. 자식 train_attacker/defender에 forward.")
+    p.add_argument("--minimal_log", action="store_true",
+                   help="터미널 'Mean episode {*}' extras print skip. wandb 기록 그대로. "
+                        "자식 train_attacker/defender에 forward.")
+    p.add_argument("--wandb_project", type=str, default=None,
+                   help="Wandb project name (run_name prefix로도 사용). 자식 forward.")
     p.add_argument("--smoke", action="store_true",
                    help="Force MVP smoke params: backend=cpu, num_envs=16, "
                         "switch_every=2, max_cycles=2, n_h2h_episodes=8.")
@@ -453,6 +462,20 @@ def main() -> int:   # noqa: PLR0912 — orchestrator drives 3-phase per-cycle l
         extra_train_args.append("--use_asymmetric_critic")
         print("[ams-s2] Phase E.1 — asymmetric critic ON (자식 train_attacker/defender)",
               flush=True)
+    if args.deterministic:
+        extra_train_args.append("--deterministic")
+        print("[ams-s2] deterministic ON — 자식 train scripts가 cudnn determinism 강제",
+              flush=True)
+    if args.minimal_log:
+        extra_train_args.append("--minimal_log")
+        print("[ams-s2] minimal_log ON — 자식 터미널 'Mean episode {*}' extras 차단",
+              flush=True)
+
+    # 2026-05-13 — run_name prefix: cli --wandb_project. 자식 cmd에 forward.
+    run_prefix = str(args.wandb_project) if args.wandb_project else "exp"
+    if args.wandb_project:
+        extra_train_args.extend(["--wandb_project", str(args.wandb_project)])
+    print(f"[ams-s2] run_name prefix = '{run_prefix}'", flush=True)
 
     # Phase D — FP pool 누적 (cycle별 산출 ckpt 추가). use_fp=False면 사용 안 됨.
     attacker_pool: list[Path] = []
@@ -491,6 +514,7 @@ def main() -> int:   # noqa: PLR0912 — orchestrator drives 3-phase per-cycle l
             "--logs_root", str(a_train_dir),
             "--env_yaml", args.env_yaml,
             "--train_yaml", args.attacker_train_yaml,
+            "--run_name", f"{run_prefix}_attacker_cycle_{cycle}_round_0",
             *extra_train_args,
         ]
         if "stationary" in def_args:
@@ -575,6 +599,7 @@ def main() -> int:   # noqa: PLR0912 — orchestrator drives 3-phase per-cycle l
                     "--env_yaml", args.env_yaml,
                     "--train_yaml", args.attacker_train_yaml,
                     "--resume", str(a_model_dst),
+                    "--run_name", f"{run_prefix}_attacker_cycle_{cycle}_round_{a_round}",
                     *extra_train_args,
                 ]
                 rc = _run_child(cmd_extra)
@@ -612,6 +637,7 @@ def main() -> int:   # noqa: PLR0912 — orchestrator drives 3-phase per-cycle l
             "--logs_root", str(d_train_dir),
             "--env_yaml", args.env_yaml,
             "--train_yaml", args.defender_train_yaml,
+            "--run_name", f"{run_prefix}_defender_cycle_{cycle}_round_0",
             *extra_train_args,
         ]
         if cur_d_resume is not None:
@@ -685,6 +711,7 @@ def main() -> int:   # noqa: PLR0912 — orchestrator drives 3-phase per-cycle l
                     "--env_yaml", args.env_yaml,
                     "--train_yaml", args.defender_train_yaml,
                     "--resume", str(d_model_dst),
+                    "--run_name", f"{run_prefix}_defender_cycle_{cycle}_round_{b_round}",
                     *extra_train_args,
                 ]
                 rc = _run_child(cmd_extra)

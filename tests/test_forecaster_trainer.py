@@ -7,9 +7,9 @@ import math
 import pytest
 import torch
 
-from agents.forecaster.model import ForecasterModel
-from agents.forecaster.replay_buffer import ForecasterReplayBuffer
-from agents.forecaster.trainer import ForecasterTrainer
+from agents.forecaster_legacy.model import ForecasterModel
+from agents.forecaster_legacy.replay_buffer import ForecasterReplayBuffer
+from agents.forecaster_legacy.trainer import ForecasterTrainer
 
 
 def _make_trainer(

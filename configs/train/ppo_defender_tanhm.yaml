@@ -25,6 +25,7 @@ actor:
     class_name: agents.tanh_mean_gaussian.TanhMeanGaussianDistribution
     init_std: 1.0
     std_type: scalar
+    std_range: [1.0e-6, 1.0]   # 2026-05-13 — std cap (log_std ≤ 0). 폭주 차단.
 
 critic:
   class_name: MLPModel

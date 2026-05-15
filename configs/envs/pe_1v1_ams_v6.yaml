@@ -1,4 +1,10 @@
 # 1v1 Pursuit-Evasion env config — **Phase M-AMS** (Phase M + relaxed crash).
+#
+# 2026-05-13 — wandb_project를 env yaml에서 정의 (train_attacker.py /
+# train_defender.py가 raw_env.get("wandb_project")로 override). 실험별 분리.
+wandb_project: ams_drl_v6_1
+
+
 # Source: pe_1v1_phase_m.yaml. Plan: 2026-05-04 — ams cycle 중 일시적 자세 발산으로
 # episode 조기 종료 (long-pursuit 데이터 손실) 완화. envelope 30° 확대 + 속도
 # cap 완화. attitude_penalty(50-80°)가 진짜 regulator 역할.

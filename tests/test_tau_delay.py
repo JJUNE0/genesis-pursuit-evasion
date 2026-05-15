@@ -221,3 +221,54 @@ def test_multi_env_shape_consistency(_gs_init):
     env.step(action)
     # Buffer still well-formed (no NaN/Inf) after a real step.
     assert torch.isfinite(env.defender_state_history).all()
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat regression guards (2026-05-13).
+# Triggered by docs/notes/prompt_for_tau_delay_claude.md — going through
+# the history buffer at tau=0 perturbed cuDNN op ordering and broke ams_v6
+# seed reproducibility (a_win 60-72% → 3-5% on cycle 6-8). These tests pin
+# that the tau=0 path *never touches* the buffer.
+# ---------------------------------------------------------------------------
+
+def test_tau0_push_history_is_noop(env_tau0):
+    """tau=0 path: _push_defender_history must NOT mutate the buffer.
+
+    The buffer is allocated to all zeros and stays zero — confirming no
+    tensor ops happen at all when tau_delay=0. This is the regression guard
+    for the ams_v6 trajectory breakage.
+    """
+    env = env_tau0
+    env.reset()
+    # After reset_idx warmup-fill (which itself is guarded by tau>0), the
+    # buffer for tau=0 should remain at its initial zeros.
+    assert torch.all(env.defender_state_history == 0), (
+        "tau=0 buffer should remain untouched by reset_idx warmup fill"
+    )
+    action = torch.zeros((env.num_envs, env.num_actions), device=env.device)
+    env.step(action)
+    assert torch.all(env.defender_state_history == 0), (
+        "tau=0 buffer should remain untouched by step()._push_defender_history"
+    )
+
+
+def test_tau0_actor_obs_bypasses_history(env_tau0):
+    """tau=0 actor obs reads self.defender_pos / self.defender_vel directly,
+    NOT defender_state_history[0]. Verified by zeroing the buffer and
+    confirming obs is still meaningful (would be wrong if read from buffer)."""
+    env = env_tau0
+    env.reset()
+    # Sanity check: buffer is zeros (per the previous test's invariant).
+    assert torch.all(env.defender_state_history == 0)
+    obs = env._attacker_obs()
+    sd_kin = obs[:, 18:24]
+    # If actor read from the zero buffer, rel_pos_d would equal
+    # rotate_to_body_frame(-attacker_pos, attacker_quat) * pos_scale, NOT
+    # the real defender-relative kinematics. Check it matches real state.
+    from envs.base_pe_env import rotate_to_body_frame
+    expected_rel_pos = rotate_to_body_frame(
+        env.defender_pos - env.attacker_pos, env.attacker_quat,
+    ) * env.pos_scale
+    assert torch.allclose(sd_kin[:, :3], expected_rel_pos, atol=1e-5), (
+        "actor obs at tau=0 must come from self.defender_pos, not buffer"
+    )

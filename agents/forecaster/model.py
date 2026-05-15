@@ -1,134 +1,178 @@
-"""Phase E.2 — Forecaster Transformer model (2026-05-08).
+"""Phase 3c — Chi_Transformer encoder-decoder forecaster (TODO §3c, 2026-05-13).
 
-Plan: docs/plans/phase_e_forecaster_buffer.md.
-CLAUDE.md §8: f_ψ standalone module, PPO loss와 분리.
+Architecture (spec §3.4 v10):
+- Encoder: multi-modal context (attacker history + actions + delayed defender +
+  τ embedding) → self-attention transformer (4 layers, pre-norm, GELU).
+- Decoder: noised future trajectory + flow-time t embedding → self+cross
+  attention (4 layers) → 6D velocity field per future step.
+- Heads = 8, d_model = 256, FFN = 4 × d_model, dropout 0.1.
+- Conditioning: cross-attention from decoder to encoder context (no causal mask).
+- τ (delay) and t (flow time) carried as sinusoidal embeddings.
 
-Architecture (사용자 권장 — 작은 모델):
-  - Input projection: per-step (s_a + s_d + action) → d_model=64
-  - Learnable positional encoding (history length K=10)
-  - TransformerEncoder: 2 layers, 64 d_model, 2 heads, 256 ffn
-  - Aggregate: last token of encoder output → (B, d_model)
-  - Linear head: (B, d_model) → (B, H * s_d_dim) → reshape (B, H, s_d_dim)
+CLAUDE.md §8: standalone module; no PPO gradient leakage.
 
-Forward:
-  Input:  s_a_history (B, K, s_a_dim) + s_d_history (B, K, s_d_dim) + action_history (B, K, num_actions)
-  Output: s_d_pred (B, H, s_d_dim)   — H-step defender state prediction
-
-NOTE on history shape: ReplayBuffer stores K+1 length (t-K..t inclusive). Model
-uses last K (most recent) for input sequence. CLAUDE.md §8 spec is K-step history
-ending at current step.
+NOT cherry-picked from CleanDiffuser ChiTransformer — the reference targets
+single-modality action prediction with causal masks, our task is multi-modal
+trajectory forecasting. We use ``torch.nn`` primitives directly to keep the
+repo standalone (no external diffusion library dependency).
 """
 
 from __future__ import annotations
+
+import math
 
 import torch
 import torch.nn as nn
 
 
-class ForecasterModel(nn.Module):
-    """Small Transformer encoder for defender state prediction.
+# ---------------------------------------------------------------------------
+# Sinusoidal scalar embedding (τ, flow time t)
+# ---------------------------------------------------------------------------
 
-    Args:
-        s_a_dim: attacker state dim (default 18 — pos+vel+rot_mat+ang_vel).
-        s_d_dim: defender state dim (default 18).
-        num_actions: action dim (default 4).
-        history_K: input sequence length.
-        horizon_H: output prediction length (multi-step).
-        d_model: transformer hidden dim (사용자 권장 64).
-        nhead: attention heads (2).
-        num_layers: encoder layer count (2).
-        ffn_dim: feed-forward dim (4 × d_model).
-        dropout: dropout rate (0.1).
+class SinusoidalEmbedding(nn.Module):
+    """Map a scalar (B,) → (B, dim) via fixed sinusoid basis.
+
+    Standard ``cos/sin`` pair; ``dim`` must be even. Frequencies pre-computed
+    as a buffer to avoid per-call device transfers.
+    """
+
+    def __init__(self, dim: int, max_period: float = 10000.0):
+        super().__init__()
+        if dim % 2 != 0:
+            raise ValueError(f"SinusoidalEmbedding dim must be even, got {dim}")
+        self.dim = int(dim)
+        half = self.dim // 2
+        freqs = torch.exp(
+            -math.log(max_period) * torch.arange(half, dtype=torch.float32) / half
+        )                                                              # (half,)
+        self.register_buffer("freqs", freqs, persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B,) or (B, 1) scalar values (any dtype)
+        x = x.float().reshape(-1, 1)                                   # (B, 1)
+        args = x * self.freqs.to(x.device).unsqueeze(0)                # (B, half)
+        return torch.cat([torch.cos(args), torch.sin(args)], dim=-1)   # (B, dim)
+
+
+# ---------------------------------------------------------------------------
+# Forecaster (encoder-decoder)
+# ---------------------------------------------------------------------------
+
+class ForecasterModel(nn.Module):
+    """Rectified-flow velocity field for defender future trajectory.
+
+    Forward signature::
+        v_pred = model(x_t, t, context, tau)
+    where
+        x_t      : (B, τ, target_dim)  noised target at flow time t
+        t        : (B, 1, 1)            flow time ∈ [0, 1]
+        context  : dict
+            attacker_history : (B, τ+1, attacker_dim)
+            defender_delayed : (B, 1,   defender_dim)
+            action_history   : (B, τ,   action_dim)
+        tau      : int                  τ (same for all batch items — Pattern 2)
+
+    Output: ``(B, τ, target_dim)`` velocity prediction.
     """
 
     def __init__(
         self,
-        s_a_dim: int = 18,
-        s_d_dim: int = 18,
-        num_actions: int = 4,
-        history_K: int = 10,
-        horizon_H: int = 5,
-        d_model: int = 64,
-        nhead: int = 2,
-        num_layers: int = 2,
-        ffn_dim: int | None = None,
+        d_model: int = 256,
+        n_heads: int = 8,
+        n_enc_layers: int = 4,
+        n_dec_layers: int = 4,
+        ffn_ratio: int = 4,
         dropout: float = 0.1,
+        attacker_dim: int = 18,
+        defender_dim: int = 6,
+        action_dim: int = 4,
+        target_dim: int = 6,
+        tau_max: int = 50,
     ):
         super().__init__()
-        if ffn_dim is None:
-            ffn_dim = 4 * d_model
-
-        self.s_a_dim = int(s_a_dim)
-        self.s_d_dim = int(s_d_dim)
-        self.num_actions = int(num_actions)
-        self.history_K = int(history_K)
-        self.horizon_H = int(horizon_H)
         self.d_model = int(d_model)
+        self.tau_max = int(tau_max)
+        self.target_dim = int(target_dim)
 
-        # per-step input dim (s_a + s_d + action)
-        in_dim = self.s_a_dim + self.s_d_dim + self.num_actions
+        # Per-modality projections.
+        self.attacker_proj = nn.Linear(attacker_dim, d_model)
+        self.defender_proj = nn.Linear(defender_dim, d_model)
+        self.action_proj = nn.Linear(action_dim, d_model)
+        self.trajectory_proj = nn.Linear(target_dim, d_model)
 
-        # Input projection
-        self.input_proj = nn.Linear(in_dim, d_model)
+        # Learnable positional encodings (sliced per-batch by current τ).
+        self.pos_attacker = nn.Parameter(torch.zeros(1, tau_max + 1, d_model))
+        self.pos_action = nn.Parameter(torch.zeros(1, tau_max, d_model))
+        self.pos_target = nn.Parameter(torch.zeros(1, tau_max, d_model))
+        nn.init.trunc_normal_(self.pos_attacker, std=0.02)
+        nn.init.trunc_normal_(self.pos_action, std=0.02)
+        nn.init.trunc_normal_(self.pos_target, std=0.02)
 
-        # Learnable positional encoding (history_K positions)
-        self.pos_emb = nn.Parameter(torch.zeros(1, self.history_K, d_model))
-        nn.init.trunc_normal_(self.pos_emb, std=0.02)
+        # Sinusoidal scalar embeddings for τ (delay) and t (flow time).
+        self.tau_embed = SinusoidalEmbedding(d_model)
+        self.t_embed = SinusoidalEmbedding(d_model)
 
-        # Transformer encoder
+        # Encoder (self-attention only, pre-norm, GELU).
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead, dim_feedforward=ffn_dim,
-            dropout=dropout, batch_first=True, norm_first=True,
-            activation="gelu",
+            d_model=d_model, nhead=n_heads, dim_feedforward=ffn_ratio * d_model,
+            dropout=dropout, activation="gelu", batch_first=True, norm_first=True,
         )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_enc_layers)
 
-        # Output head: last token → (H * s_d_dim)
-        self.output_head = nn.Linear(d_model, self.horizon_H * self.s_d_dim)
+        # Decoder (self + cross attention, pre-norm, GELU).
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=d_model, nhead=n_heads, dim_feedforward=ffn_ratio * d_model,
+            dropout=dropout, activation="gelu", batch_first=True, norm_first=True,
+        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=n_dec_layers)
 
-        # Init last layer with small weights to start near zero predictions.
-        nn.init.zeros_(self.output_head.bias)
-        nn.init.xavier_uniform_(self.output_head.weight, gain=0.1)
+        # Output projection (init small so initial v_pred ≈ 0 → stable RF init).
+        self.output_norm = nn.LayerNorm(d_model)
+        self.output_proj = nn.Linear(d_model, target_dim)
+        nn.init.zeros_(self.output_proj.bias)
+        nn.init.xavier_uniform_(self.output_proj.weight, gain=0.1)
+
+    # ------------------------------------------------------------------
+    # Forward
+    # ------------------------------------------------------------------
 
     def forward(
         self,
-        s_a_history: torch.Tensor,    # (B, K_or_K1, s_a_dim) — last K used
-        s_d_history: torch.Tensor,    # (B, K_or_K1, s_d_dim) — last K used
-        action_history: torch.Tensor, # (B, K, num_actions)
+        x_t: torch.Tensor,                               # (B, τ, target_dim)
+        t: torch.Tensor,                                 # (B, 1, 1)
+        context: dict[str, torch.Tensor],
+        tau: int,
     ) -> torch.Tensor:
-        """Forward pass.
+        if int(tau) < 1 or int(tau) > self.tau_max:
+            raise ValueError(f"tau out of [1, {self.tau_max}]: {tau}")
+        T = int(tau)
+        B = x_t.shape[0]
 
-        Returns: predicted defender state (B, H, s_d_dim).
-        """
-        B = s_a_history.shape[0]
-        K = self.history_K
+        # ---- Encoder context ----
+        A = self.attacker_proj(context["attacker_history"]) + self.pos_attacker[:, : T + 1]  # (B, τ+1, d)
+        C = self.action_proj(context["action_history"]) + self.pos_action[:, :T]              # (B, τ, d)
+        D = self.defender_proj(context["defender_delayed"])                                   # (B, 1, d)
 
-        # ReplayBuffer는 K+1 길이로 저장 (t-K..t). 모델은 last K (t-K+1..t) 사용.
-        # action_history는 K 길이 (action_{t-K..t-1}).
-        if s_a_history.shape[1] == K + 1:
-            s_a = s_a_history[:, -K:, :]
-            s_d = s_d_history[:, -K:, :]
-        elif s_a_history.shape[1] == K:
-            s_a, s_d = s_a_history, s_d_history
-        else:
-            raise ValueError(
-                f"s_a_history seq_len {s_a_history.shape[1]} not in {{K={K}, K+1={K+1}}}"
-            )
-        assert s_d.shape == (B, K, self.s_d_dim)
-        assert action_history.shape == (B, K, self.num_actions)
+        tau_scalar = torch.full((B,), float(T), device=x_t.device, dtype=torch.float32)
+        tau_emb = self.tau_embed(tau_scalar).unsqueeze(1)                                     # (B, 1, d)
 
-        # Concat per step → (B, K, in_dim)
-        x = torch.cat([s_a, s_d, action_history], dim=-1)
-        # Input projection + pos encoding
-        x = self.input_proj(x) + self.pos_emb   # (B, K, d_model)
-        # Encoder
-        h = self.encoder(x)                     # (B, K, d_model)
-        # Aggregate: last token (most recent t)
-        last = h[:, -1, :]                      # (B, d_model)
-        # Output head
-        pred_flat = self.output_head(last)      # (B, H * s_d_dim)
-        pred = pred_flat.view(B, self.horizon_H, self.s_d_dim)
-        return pred
+        encoder_input = torch.cat([A, C, D, tau_emb], dim=1)                                   # (B, 2τ+3, d)
+        memory = self.encoder(encoder_input)                                                   # (B, 2τ+3, d)
+
+        # ---- Decoder ----
+        x_emb = self.trajectory_proj(x_t) + self.pos_target[:, :T]                             # (B, τ, d)
+        # Flow time t is a per-sample scalar; broadcast its embedding across τ positions.
+        t_emb = self.t_embed(t.reshape(-1)).unsqueeze(1)                                       # (B, 1, d)
+        decoder_input = x_emb + t_emb                                                          # (B, τ, d) (broadcast on dim=1)
+
+        decoded = self.decoder(tgt=decoder_input, memory=memory)                               # (B, τ, d)
+        decoded = self.output_norm(decoded)
+        v_pred = self.output_proj(decoded)                                                     # (B, τ, target_dim)
+        return v_pred
+
+    # ------------------------------------------------------------------
+    # Diagnostic
+    # ------------------------------------------------------------------
 
     def num_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)

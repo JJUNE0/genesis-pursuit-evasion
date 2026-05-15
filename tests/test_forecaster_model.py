@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from agents.forecaster.model import ForecasterModel
+from agents.forecaster_legacy.model import ForecasterModel
 
 
 def _make_model(K=10, H=5, s_a=18, s_d=18, na=4, d_model=64):

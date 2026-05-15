@@ -97,6 +97,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_iterations", type=int, default=5,
                    help="PPO iterations. Plan §10.2: smoke uses 5; full run uses 5000.")
     p.add_argument("--seed", type=int, required=True)
+    p.add_argument("--deterministic", action="store_true",
+                   help="GPU deterministic algorithms (paper-grade reproducibility). "
+                        "Default OFF — 학습 빠름. ON 시 cudnn cache 비활성으로 spawn "
+                        "첫 forward 느려질 수 있음.")
+    p.add_argument("--run_name", type=str, default=None,
+                   help="Override run name (wandb + logs_root subdir). 사용 시 "
+                        "timestamp/git_sha 안 붙음.")
+    p.add_argument("--minimal_log", action="store_true",
+                   help="터미널에 'Mean episode {*}' extras print skip. wandb 기록은 그대로.")
+    p.add_argument("--wandb_project", type=str, default=None,
+                   help="Override wandb project name. None이면 train_yaml의 default 사용.")
     p.add_argument("--backend", type=str, default="gpu", choices=["gpu", "cpu"])
     p.add_argument("--logger", type=str, default="wandb", choices=["wandb", "tensorboard"])
     p.add_argument("--show_viewer", action="store_true")
@@ -134,17 +145,27 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _seed_all(seed: int) -> None:
+def _seed_all(seed: int, deterministic: bool = False) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    # 2026-05-13 — opt-in GPU determinism. default OFF (학습 속도 우선).
+    if deterministic:
+        import os
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def main() -> int:
     args = parse_args()
-    _seed_all(args.seed)
+    _seed_all(args.seed, deterministic=args.deterministic)
+    if args.minimal_log:
+        from agents.ppo_runner import enable_minimal_terminal_log
+        enable_minimal_terminal_log()
 
     backend = gs.gpu if args.backend == "gpu" else gs.cpu
     gs.init(backend=backend, seed=args.seed, logging_level="warning")
@@ -200,9 +221,15 @@ def main() -> int:
     )
 
     train_cfg = load_train_cfg(args.train_yaml)
+    # 2026-05-13 — cli --wandb_project가 train_yaml의 default를 override.
+    if args.wandb_project:
+        train_cfg["wandb_project"] = str(args.wandb_project)
 
     timestamp = int(time.time())
-    run_name = make_run_name(f"phase1.0_defender_seed{args.seed}", timestamp=timestamp)
+    if args.run_name:
+        run_name = args.run_name   # 2026-05-13 — override
+    else:
+        run_name = make_run_name(f"phase1.0_defender_seed{args.seed}", timestamp=timestamp)
     log_dir = Path(args.logs_root) / run_name
     log_dir.mkdir(parents=True, exist_ok=True)
 
